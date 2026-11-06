@@ -247,18 +247,14 @@ class MoadumApp {
     document.getElementById("board-view-title").textContent = board.name;
     document.getElementById("board-view-desc").textContent = board.description;
 
-    // 소제목 탭 렌더링
+    // 소제목 탭 렌더링 (기능명세서 2.2: 전체, 기본 소제목들, 미분류 탭 제공)
     const subtabsBar = document.getElementById("board-subtabs-bar");
     let subtabsHTML = `<button class="subtab-btn ${this.currentSubcategory === "전체" ? "active" : ""}" onclick="moadumApp.selectSubcategory('전체')">전체</button>`;
     board.subcategories.forEach((sub) => {
       subtabsHTML += `<button class="subtab-btn ${this.currentSubcategory === sub ? "active" : ""}" onclick="moadumApp.selectSubcategory('${sub}')">${sub}</button>`;
     });
-    subtabsHTML += `
-      <button class="add-subcat-btn" onclick="moadumApp.promptAddSubcategory()">
-        <i data-lucide="plus" style="width:14px;height:14px;"></i>
-        <span>소제목 추가</span>
-      </button>
-    `;
+    // 미분류 탭
+    subtabsHTML += `<button class="subtab-btn ${this.currentSubcategory === "미분류" ? "active" : ""}" onclick="moadumApp.selectSubcategory('미분류')">미분류</button>`;
     subtabsBar.innerHTML = subtabsHTML;
 
     // 태그 칩 목록 렌더링
@@ -348,8 +344,10 @@ class MoadumApp {
       ? this.storage.data.items.filter((i) => i.isFavorite)
       : this.storage.data.items.filter((i) => i.boardId === this.currentBoardId);
 
-    // 소제목 필터
-    if (this.currentSubcategory !== "전체") {
+    // 소제목 필터 (기능명세서 2.2: 미분류 탭 지원)
+    if (this.currentSubcategory === "미분류") {
+      items = items.filter((i) => !i.subcategory || i.subcategory === "미분류" || i.subcategory === "분류 없음");
+    } else if (this.currentSubcategory !== "전체") {
       items = items.filter((i) => i.subcategory === this.currentSubcategory);
     }
 
@@ -546,7 +544,7 @@ class MoadumApp {
       grid.innerHTML = inboxItems
         .map((item) => {
           return `
-          <div class="content-card">
+          <div class="content-card" onclick="moadumApp.openItemDetail('${item.id}')">
             ${item.image ? `<div class="card-thumb-wrap"><img src="${item.image}" class="card-thumb-img"></div>` : ""}
             <div class="card-body">
               <div class="card-top-meta">
@@ -558,10 +556,14 @@ class MoadumApp {
               <div class="card-tags-row">
                 ${(item.tags || []).map((t) => `<span class="tag-badge">#${t}</span>`).join("")}
               </div>
-              <div style="margin-top:auto;padding-top:12px;">
-                <button class="btn-primary" style="width:100%;justify-content:center;font-size:12px;" onclick="moadumApp.openMoveBoardModal('${item.id}')">
+              <div style="margin-top:auto;padding-top:12px;display:flex;gap:8px;">
+                <button class="btn-primary" style="flex:1;justify-content:center;font-size:12px;" onclick="event.stopPropagation(); moadumApp.openMoveBoardModal('${item.id}')">
                   <i data-lucide="folder-input" style="width:14px;height:14px;"></i>
                   <span>보드로 이동</span>
+                </button>
+                <button class="btn-secondary" style="color:var(--accent-red-text);border-color:var(--accent-red-border);padding:6px 12px;font-size:12px;display:flex;align-items:center;gap:4px;" title="삭제" onclick="event.stopPropagation(); moadumApp.deleteItem('${item.id}')">
+                  <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
+                  <span>삭제</span>
                 </button>
               </div>
             </div>
@@ -1196,7 +1198,7 @@ class MoadumApp {
     document.getElementById("qs-image-desc-counter").textContent = `${len} / 500`;
   }
 
-  // 저장하기 실행
+  // 저장하기 실행 (기능명세서 1.1 반영: 제목 및 유형별 내용 필수 검증, 보드 미지정 시 임시보관함 자동 저장)
   saveQuickItem(forceInbox = false) {
     const title = document.getElementById("qs-meta-title")?.value.trim();
     if (!title) {
@@ -1206,8 +1208,10 @@ class MoadumApp {
     }
 
     const activeTab = document.querySelector(".qs-tab-btn.active")?.id.replace("qs-tab-", "") || "memo";
-    const boardId = forceInbox ? null : document.getElementById("qs-meta-board").value === "inbox" ? null : document.getElementById("qs-meta-board").value;
-    const subcategory = forceInbox ? null : document.getElementById("qs-meta-subcat").value || null;
+    const selectedBoardVal = document.getElementById("qs-meta-board").value;
+    const isInbox = forceInbox || !selectedBoardVal || selectedBoardVal === "inbox";
+    const boardId = isInbox ? null : selectedBoardVal;
+    const subcategory = isInbox ? null : (document.getElementById("qs-meta-subcat").value || null);
 
     let content = "";
     let summary = "";
@@ -1215,18 +1219,31 @@ class MoadumApp {
     let image = null;
 
     if (activeTab === "memo") {
-      content = document.getElementById("qs-memo-body").value;
+      content = document.getElementById("qs-memo-body").value.trim();
+      if (!content) {
+        alert("메모 본문 내용을 입력해주세요.");
+        document.getElementById("qs-memo-body")?.focus();
+        return;
+      }
       summary = content.slice(0, 150);
     } else if (activeTab === "image") {
-      content = document.getElementById("qs-image-desc").value;
-      summary = content.slice(0, 150);
-      image = this.currentUploadedImageDataUrl || "assets/otter_thumb.png";
+      content = document.getElementById("qs-image-desc").value.trim();
+      image = this.currentUploadedImageDataUrl;
+      if (!image) {
+        alert("이미지 파일을 업로드해주세요. ('샘플 수달 짤 바로 넣기' 버튼으로 테스트 가능합니다)");
+        return;
+      }
+      summary = content.slice(0, 150) || "이미지 자료";
     } else if (activeTab === "link") {
-      url = document.getElementById("qs-link-url").value;
-      content = document.getElementById("qs-link-desc").value;
+      url = document.getElementById("qs-link-url").value.trim();
+      if (!url) {
+        alert("링크 URL을 입력해주세요.");
+        document.getElementById("qs-link-url")?.focus();
+        return;
+      }
+      content = document.getElementById("qs-link-desc").value.trim();
       summary = content || url;
     } else if (activeTab === "schedule") {
-      // 일정 저장 시 schedules에도 동시 등록
       const date = document.getElementById("qs-sch-date").value;
       const start = document.getElementById("qs-sch-start").value;
       const end = document.getElementById("qs-sch-end").value;
@@ -1322,11 +1339,15 @@ class MoadumApp {
   }
 
   // =========================================================================
-  // 7. 자료 상세 보기 및 수정 모달
+  // 7. 자료 상세 보기 및 수정·삭제 기능 (기능명세서 3.3, 4.3 반영)
   // =========================================================================
   openItemDetail(itemId) {
     const item = this.storage.data.items.find((i) => i.id === itemId);
     if (!item) return;
+
+    const board = this.storage.data.boards.find(b => b.id === item.boardId);
+    const boardName = board ? board.name : "임시 보관함";
+    const subcatName = item.subcategory || "미분류";
 
     document.getElementById("detail-type-badge").textContent = item.type === "image" ? "이미지" : item.type === "link" ? "링크" : "메모";
     document.getElementById("detail-date-text").textContent = item.createdAt.slice(0, 10);
@@ -1336,7 +1357,10 @@ class MoadumApp {
 
     body.innerHTML = `
       <div style="margin-bottom:16px;">
-        <h2 style="font-size:20px;font-weight:800;color:var(--text-title);margin-bottom:8px;">${item.title}</h2>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span class="tag-badge" style="background:#E2E8F0;color:#334155;font-weight:700;">📂 ${boardName} > ${subcatName}</span>
+        </div>
+        <h2 style="font-size:20px;font-weight:800;color:var(--text-title);margin-bottom:8px;" id="detail-view-title">${item.title}</h2>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
           ${(item.tags || []).map((t) => `<span class="tag-badge">#${t}</span>`).join("")}
         </div>
@@ -1367,15 +1391,137 @@ class MoadumApp {
     `;
 
     footer.innerHTML = `
-      <button class="btn-secondary" style="color:var(--accent-red-text);" onclick="moadumApp.deleteItem('${item.id}')">
+      <button class="btn-secondary" style="color:var(--accent-red-text);margin-right:auto;" onclick="moadumApp.deleteItem('${item.id}')">
         <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
         <span>삭제</span>
+      </button>
+      <button class="btn-secondary" onclick="moadumApp.enableItemEdit('${item.id}')">
+        <i data-lucide="edit-3" style="width:14px;height:14px;"></i>
+        <span>수정하기</span>
       </button>
       <button class="btn-primary" onclick="moadumApp.closeModal('modal-item-detail')">닫기</button>
     `;
 
     this.openModal("modal-item-detail");
     this.refreshIcons();
+  }
+
+  // 자료 상세 인라인 편집 폼 전환 (기능명세서 3.3, 4.3 요구사항)
+  enableItemEdit(itemId) {
+    const item = this.storage.data.items.find((i) => i.id === itemId);
+    if (!item) return;
+
+    const body = document.getElementById("item-detail-modal-body");
+    const footer = document.getElementById("item-detail-modal-footer");
+
+    const boardOptions = this.storage.data.boards.map(b => `
+      <option value="${b.id}" ${item.boardId === b.id ? "selected" : ""}>${b.name}</option>
+    `).join("");
+
+    body.innerHTML = `
+      <div class="form-group">
+        <label class="form-label">제목 *</label>
+        <input type="text" id="edit-item-title" class="form-input" value="${item.title.replace(/"/g, '&quot;')}">
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+        <div class="form-group">
+          <label class="form-label">보드 선택</label>
+          <select id="edit-item-board" class="form-select" onchange="moadumApp.updateEditSubcategories()">
+            <option value="inbox" ${!item.boardId ? "selected" : ""}>임시 보관함 (미분류)</option>
+            ${boardOptions}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">소제목 (세부 분류)</label>
+          <select id="edit-item-subcat" class="form-select">
+            <!-- 동적 렌더링 -->
+          </select>
+        </div>
+      </div>
+
+      ${item.url ? `
+        <div class="form-group">
+          <label class="form-label">링크 URL</label>
+          <input type="url" id="edit-item-url" class="form-input" value="${item.url || ''}">
+        </div>
+      ` : ""}
+
+      <div class="form-group">
+        <label class="form-label">본문 내용 / 설명</label>
+        <textarea id="edit-item-content" class="form-textarea" style="min-height:160px;">${item.content || item.summary || ''}</textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">태그 (쉼표로 구분)</label>
+        <input type="text" id="edit-item-tags" class="form-input" value="${(item.tags || []).join(', ')}">
+      </div>
+    `;
+
+    footer.innerHTML = `
+      <button class="btn-secondary" onclick="moadumApp.openItemDetail('${item.id}')">수정 취소</button>
+      <button class="btn-primary" onclick="moadumApp.saveItemEdit('${item.id}')">
+        <i data-lucide="check" style="width:14px;height:14px;"></i>
+        <span>수정 완료</span>
+      </button>
+    `;
+
+    this.updateEditSubcategories(item.subcategory);
+    this.refreshIcons();
+  }
+
+  updateEditSubcategories(currentSubcat = null) {
+    const boardId = document.getElementById("edit-item-board")?.value;
+    const subcatSelect = document.getElementById("edit-item-subcat");
+    if (!subcatSelect) return;
+    subcatSelect.innerHTML = `<option value="">미분류</option>`;
+
+    if (boardId && boardId !== "inbox") {
+      const board = this.storage.data.boards.find(b => b.id === boardId);
+      if (board && board.subcategories) {
+        board.subcategories.forEach(sub => {
+          subcatSelect.innerHTML += `<option value="${sub}" ${currentSubcat === sub ? "selected" : ""}>${sub}</option>`;
+        });
+      }
+    }
+  }
+
+  // 자료 편집 저장
+  saveItemEdit(itemId) {
+    const item = this.storage.data.items.find((i) => i.id === itemId);
+    if (!item) return;
+
+    const newTitle = document.getElementById("edit-item-title")?.value.trim();
+    if (!newTitle) {
+      alert("제목을 입력해주세요.");
+      return;
+    }
+
+    const newBoard = document.getElementById("edit-item-board")?.value;
+    const newSubcat = document.getElementById("edit-item-subcat")?.value;
+    const newContent = document.getElementById("edit-item-content")?.value;
+    const newTagsStr = document.getElementById("edit-item-tags")?.value;
+
+    item.title = newTitle;
+    item.boardId = newBoard === "inbox" ? null : newBoard;
+    item.subcategory = newSubcat || null;
+    item.content = newContent;
+    item.summary = newContent.slice(0, 150);
+
+    const urlInput = document.getElementById("edit-item-url");
+    if (urlInput) item.url = urlInput.value.trim();
+
+    item.tags = newTagsStr
+      ? newTagsStr.split(",").map(t => t.trim().replace(/^#/, "")).filter(Boolean)
+      : [];
+
+    this.storage.save();
+    this.showToast("자료가 성공적으로 수정되었습니다! ✍️");
+    this.openItemDetail(itemId);
+
+    if (this.currentView === "home") this.renderHome();
+    else if (this.currentView === "board") this.renderCurrentBoardCards();
+    else if (this.currentView === "inbox") this.renderInbox();
   }
 
   deleteItem(itemId) {
