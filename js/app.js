@@ -390,10 +390,50 @@ class MoadumApp {
       empty.style.display = "block";
     } else {
       empty.style.display = "none";
-      grid.innerHTML = items.map((item) => this.generateCardHTML(item)).join("");
+      // 짤 보관함(memes)은 핀터레스트 스타일 핀 그리드로 렌더링!
+      if (this.currentBoardId === "memes") {
+        grid.className = "pinterest-pin-grid";
+        grid.innerHTML = items.map((item) => this.generatePinCardHTML(item)).join("");
+      } else {
+        grid.className = "card-grid-3";
+        grid.innerHTML = items.map((item) => this.generateCardHTML(item)).join("");
+      }
     }
 
     this.refreshIcons();
+  }
+
+  // =========================================================================
+  // 핀터레스트 스타일 핀 카드 생성기 (사용자 요청: 짤 보관함 전용)
+  // =========================================================================
+  generatePinCardHTML(item) {
+    const isFav = item.isFavorite;
+    const imgSrc = item.image || "assets/otter_meme.png";
+
+    return `
+      <div class="pin-card" onclick="moadumApp.openItemDetail('${item.id}')">
+        <div class="pin-img-wrapper">
+          <img src="${imgSrc}" alt="${item.title}" class="pin-img" loading="lazy" onerror="this.src='assets/otter_meme.png'">
+          <div class="pin-hover-overlay">
+            <div class="pin-overlay-top">
+              <button class="pin-save-btn" onclick="event.stopPropagation(); moadumApp.toggleFavorite('${item.id}')">
+                ${isFav ? "저장됨" : "저장"}
+              </button>
+            </div>
+            <div class="pin-overlay-bottom">
+              <span style="font-weight:600; text-shadow: 0 1px 2px rgba(0,0,0,0.8);">${item.subcategory || "짤"}</span>
+              <span style="background:rgba(0,0,0,0.55);padding:3px 8px;border-radius:12px;font-size:11px;font-weight:600;">상세보기</span>
+            </div>
+          </div>
+        </div>
+        <div class="pin-info-bar">
+          <div class="pin-title" title="${item.title}">${item.title}</div>
+          <button class="pin-star-btn ${isFav ? "active" : ""}" title="즐겨찾기" onclick="event.stopPropagation(); moadumApp.toggleFavorite('${item.id}')">
+            <i data-lucide="star" style="width:16px;height:16px;fill:${isFav ? "var(--star-gold)" : "none"};"></i>
+          </button>
+        </div>
+      </div>
+    `;
   }
 
   // =========================================================================
@@ -1302,7 +1342,17 @@ class MoadumApp {
         </div>
       </div>
 
-      ${item.image ? `<div style="text-align:center;margin-bottom:16px;background:#000;border-radius:12px;padding:8px;"><img src="${item.image}" style="max-height:360px;margin:0 auto;object-fit:contain;"></div>` : ""}
+      ${item.image ? `
+        <div class="meme-modal-viewer">
+          <img src="${item.image}" class="meme-modal-img" alt="${item.title}">
+          <div style="margin-top:10px;display:flex;gap:8px;">
+            <a href="${item.image}" download="${item.title}.jpg" class="btn-secondary" style="font-size:11px;padding:5px 12px;background:rgba(255,255,255,0.15);color:#FFF;border:1px solid rgba(255,255,255,0.25);">
+              <i data-lucide="download" style="width:13px;height:13px;"></i>
+              <span>짤 다운로드</span>
+            </a>
+          </div>
+        </div>
+      ` : ""}
 
       ${item.url ? `
         <div style="background:var(--primary-light);border:1px solid var(--primary-border);border-radius:8px;padding:12px 14px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">

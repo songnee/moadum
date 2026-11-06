@@ -44,8 +44,8 @@ const DEFAULT_DATA = {
       id: "memes",
       name: "짤 보관함",
       icon: "smile",
-      description: "지친 일상에 힘이 되는 웃긴 짤과 동기부여 이미지 모음입니다.",
-      subcategories: ["동기부여", "취준 공감", "직장인 유머", "힐링"]
+      description: "핀터레스트처럼 모아보는 웃긴 밈 & 취준 힐링 짤 보관함입니다.",
+      subcategories: ["무한도전 밈", "직장인/퇴근", "취준 공감", "동기부여"]
     }
   ],
 
@@ -160,9 +160,101 @@ const DEFAULT_DATA = {
       image: "assets/otter_meme.png",
       summary: "오늘도 할 수 있다...! 취준 파이팅 🙏 지치지 말고 하루하루 꾸준히!",
       content: "오늘도 할 수 있다...! 취준 파이팅 🙏\n아무리 힘들어도 하루에 한 장, 한 줄씩 채워가면 반드시 좋은 기회가 올 거야.",
-      tags: ["짤", "동기부여", "취준"],
+      tags: ["동기부여", "취준", "수달"],
       isFavorite: true,
       createdAt: "2024-11-05T10:00:00"
+    },
+    // 사용자 요청: 핀터레스트 스타일 짤 보관함 신규 밈 컬렉션
+    {
+      id: "item_meme_1",
+      type: "image",
+      boardId: "memes",
+      subcategory: "직장인/퇴근",
+      title: "오늘 술 한 잔 하시죠?",
+      image: "assets/meme_drink.jpg",
+      summary: "무한도전 야유회 박명수 & 유재석 - 은밀하게 '오늘 술 한 잔 하시죠?'",
+      content: "퇴근 직전 은밀하게 건네는 맥주/소주 제안 짤. 직장인 힐링 필수템!",
+      tags: ["무한도전", "박명수", "퇴근", "술한잔"],
+      isFavorite: true,
+      createdAt: "2024-11-06T11:40:00"
+    },
+    {
+      id: "item_meme_2",
+      type: "image",
+      boardId: "memes",
+      subcategory: "직장인/퇴근",
+      title: "그럼 맥주나 한 잔 할래?",
+      image: "assets/meme_beer.jpg",
+      summary: "무한도전 박명수 & 노홍철 - 농땡이 피우며 '그럼 맥주나 한 잔 할래?'",
+      content: "열심히 일하다가 잠시 농땡이 피우며 건네는 시원한 맥주 한 잔 짤.",
+      tags: ["무한도전", "박명수", "노홍철", "농땡이", "맥주"],
+      isFavorite: true,
+      createdAt: "2024-11-06T11:35:00"
+    },
+    {
+      id: "item_meme_3",
+      type: "image",
+      boardId: "memes",
+      subcategory: "무한도전 밈",
+      title: "온몸에 힘 빠지는 남의 행복",
+      image: "assets/meme_exhausted.jpg",
+      summary: "턱시도 입고 영혼 털린 박명수 명짤",
+      content: "남의 행복에 온몸에 힘 빠진 현실적인 표정의 박명수 명짤.",
+      tags: ["무한도전", "박명수", "현타", "직장인"],
+      isFavorite: true,
+      createdAt: "2024-11-06T10:00:00"
+    },
+    {
+      id: "item_meme_4",
+      type: "image",
+      boardId: "memes",
+      subcategory: "무한도전 밈",
+      title: "저를 원하시면 가지세요!",
+      image: "assets/meme_take_me.jpg",
+      summary: "자신감 넘치는 노홍철 패기 짤",
+      content: "면접이나 자기 PR 때 쓰고 싶은 광기의 자신감 짤.",
+      tags: ["무한도전", "노홍철", "자신감", "취준생"],
+      isFavorite: false,
+      createdAt: "2024-11-05T18:00:00"
+    },
+    {
+      id: "item_meme_5",
+      type: "image",
+      boardId: "memes",
+      subcategory: "취준 공감",
+      title: "나 사는 게 힘들어... 엄마...",
+      image: "assets/meme_hard_life.jpg",
+      summary: "패딩 입고 누워있는 아기 짤 - 나 사는 게 힘들어...",
+      content: "자소서 쓰다가 지칠 때 단톡방에 올리기 딱 좋은 아기 짤.",
+      tags: ["취준공감", "힘들어", "힐링"],
+      isFavorite: true,
+      createdAt: "2024-11-05T15:00:00"
+    },
+    {
+      id: "item_meme_6",
+      type: "image",
+      boardId: "memes",
+      subcategory: "무한도전 밈",
+      title: "올 가을엔 사랑하세요...",
+      image: "assets/meme_fall_love.jpg",
+      summary: "아련한 표정의 정형돈 짤",
+      content: "올 가을엔 사랑하세요... 아니 취업하세요...",
+      tags: ["무한도전", "정형돈", "가을", "사랑"],
+      isFavorite: false,
+      createdAt: "2024-11-05T12:00:00"
+    },
+    {
+      id: "item_meme_7",
+      type: "image",
+      boardId: "memes",
+      subcategory: "취준 공감",
+      title: "멘붕",
+      image: "assets/meme_menbung.jpg",
+      summary: "머리 잡고 넋 나간 박미선 짤",
+      content: "코딩테스트나 서류 마감 10분 전 나의 모습.",
+      tags: ["멘붕", "시험", "취준생"],
+      isFavorite: false,
+      createdAt: "2024-11-05T09:00:00"
     },
     {
       id: "item_10",
@@ -340,7 +432,7 @@ const DEFAULT_DATA = {
 // 스토리지 관리자
 class MoadumStorage {
   constructor() {
-    this.STORAGE_KEY = "moadum_database_v1";
+    this.STORAGE_KEY = "moadum_database_v2"; // v2로 갱신하여 신규 짤 밈 자동 반영
     this.data = this.load();
   }
 
@@ -348,7 +440,12 @@ class MoadumStorage {
     try {
       const saved = localStorage.getItem(this.STORAGE_KEY);
       if (saved) {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        // 새로운 짤 아이템이 누락되지 않도록 보장
+        if (parsed.items && !parsed.items.some(i => i.id === "item_meme_1")) {
+          parsed.items = [...DEFAULT_DATA.items];
+        }
+        return parsed;
       }
     } catch (e) {
       console.warn("로컬스토리지 로드 실패, 기본 데이터 사용", e);
