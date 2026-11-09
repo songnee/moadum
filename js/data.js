@@ -327,7 +327,7 @@ const DEFAULT_DATA = {
       title: "카카오뱅크 1차 면접",
       type: "면접 준비", // '면접 준비' | '지원 마감' | '블로그 초안' | '기타'
       categoryColor: "purple", // purple, red, green
-      date: "2024-10-31", // 목요일
+      date: `${new Date().getFullYear()}-10-31`, // 목요일
       startTime: "10:00",
       endTime: "12:00",
       company: "카카오뱅크 본사",
@@ -340,7 +340,7 @@ const DEFAULT_DATA = {
       title: "블로그 초안",
       type: "블로그 초안",
       categoryColor: "green",
-      date: "2024-10-29", // 화요일
+      date: `${new Date().getFullYear()}-10-29`, // 화요일
       startTime: "14:00",
       endTime: "16:00",
       company: "블로그 글 작성",
@@ -353,7 +353,7 @@ const DEFAULT_DATA = {
       title: "지원 마감",
       type: "지원 마감",
       categoryColor: "red",
-      date: "2024-11-03", // 일요일
+      date: `${new Date().getFullYear()}-11-03`, // 일요일
       startTime: "23:59",
       endTime: "23:59",
       company: "현대카드 채용",
@@ -366,7 +366,7 @@ const DEFAULT_DATA = {
       title: "삼성전자 서류 마감",
       type: "지원 마감",
       categoryColor: "red",
-      date: "2024-11-05",
+      date: `${new Date().getFullYear()}-11-05`,
       startTime: "17:00",
       endTime: "17:00",
       company: "삼성전자 채용 홈페이지",
@@ -379,7 +379,7 @@ const DEFAULT_DATA = {
       title: "블루베리 AI 면접",
       type: "면접 준비",
       categoryColor: "purple",
-      date: "2024-11-04",
+      date: `${new Date().getFullYear()}-11-04`,
       startTime: "10:00",
       endTime: "11:00",
       company: "온라인 AI 역량검사",
@@ -441,6 +441,16 @@ class MoadumStorage {
       const saved = localStorage.getItem(this.STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
+        // 기본 예시 일정의 연도만 올해로 갱신하고, 사용자가 추가한 일정은 유지
+        const currentYear = new Date().getFullYear();
+        const defaultScheduleIds = new Set(["sch_1", "sch_2", "sch_3", "sch_4", "sch_5"]);
+        if (Array.isArray(parsed.schedules)) {
+          parsed.schedules.forEach((schedule) => {
+            if (defaultScheduleIds.has(schedule.id) && /^2024-/.test(schedule.date || "")) {
+              schedule.date = `${currentYear}${schedule.date.slice(4)}`;
+            }
+          });
+        }
         // 새로운 짤 아이템이 누락되지 않도록 보장
         if (parsed.items && !parsed.items.some(i => i.id === "item_meme_1")) {
           parsed.items = [...DEFAULT_DATA.items];
