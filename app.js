@@ -1,0 +1,2259 @@
+// 모아둠 (MOADUM) 메인 애플리케이션 스크립트
+
+class MoadumApp {
+  constructor() {
+    this.storage = window.moadumStorage;
+    this.currentView = "home";
+    this.currentBoardId = "job";
+    this.currentSubcategory = "전체";
+    this.currentTagFilter = "전체";
+    this.calendarViewMode = "week"; // 'week' | 'month' | 'list'
+    this.quickSaveTags = [];
+    this.currentUploadedImageDataUrl = null;
+
+    // 현재 실제 날짜 기준으로 캘린더 초기화
+    this.calendarCurrentDate = new Date();
+    const todayStr = this.formatLocalDate(this.calendarCurrentDate);
+    this.selectedScheduleDate = todayStr;
+    const schs = this.storage.data.schedules || [];
+    const matched = schs.find((s) => s.date === todayStr) || schs[0];
+    this.selectedScheduleId = matched ? matched.id : (schs[0] ? schs[0].id : null);
+  }
+
+  formatLocalDate(dateObj) {
+    if (!dateObj) return "";
+    const d = new Date(dateObj);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  calculateDDay(dateStr) {
+    if (!dateStr) return "D-Day";
+    const target = new Date(dateStr + "T00:00:00");
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffTime = target.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return "D-Day";
+    if (diffDays > 0) return `D-${diffDays}`;
+    return `D+${Math.abs(diffDays)}`;
+  }
+
+  getWeekDates(targetDate) {
+    const d = new Date(targetDate);
+    const day = d.getDay(); // 0(일) ~ 6(토)
+    // 월요일(1) 시작으로 계산
+    const diffToMonday = (day === 0 ? -6 : 1) - day;
+    const monday = new Date(d);
+    monday.setDate(d.getDate() + diffToMonday);
+
+    const todayStr = this.formatLocalDate(new Date());
+    const dayNames = ["월", "화", "수", "목", "금", "토", "일"];
+    const dates = [];
+
+    for (let i = 0; i < 7; i++) {
+      const curr = new Date(monday);
+      curr.setDate(monday.getDate() + i);
+      const dateStr = this.formatLocalDate(curr);
+      const m = curr.getMonth() + 1;
+      const dateNum = curr.getDate();
+      dates.push({
+        date: dateStr,
+        label: `${m}/${dateNum} (${dayNames[i]})`,
+        dayOfWeek: curr.getDay(),
+        isToday: dateStr === todayStr,
+        isTarget: dateStr === this.selectedScheduleDate
+      });
+    }
+    return dates;
+  }
+
+  init() {
+    this.applyTheme(this.storage.data.currentUser.theme || "light");
+    this.updateUserHeader();
+    this.updateStorageWidgets();
+    this.updateInboxBadge();
+    this.renderNotifications();
+    this.navigate("home");
+
+    // 외부 클릭 시 드롭다운 닫기
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest("#notif-bell-btn") && !e.target.closest("#notif-dropdown")) {
+        document.getElementById("notif-dropdown")?.classList.remove("active");
+      }
+      if (!e.target.closest(".user-profile-btn") && !e.target.closest("#profile-dropdown")) {
+        document.getElementById("profile-dropdown")?.classList.remove("active");
+      }
+    });
+
+    this.refreshIcons();
+  }
+
+  refreshIcons() {
+    if (window.lucide) {
+      window.lucide.createIcons();
+    }
+  }
+
+  showToast(message) {
+    const container = document.getElementById("toast-container");
+    if (!container) return;
+    const toast = document.createElement("div");
+    toast.className = "toast";
+    toast.innerHTML = `<i data-lucide="check-circle" style="width:16px;height:16px;color:#4ADE80;"></i><span>${message}</span>`;
+    container.appendChild(toast);
+    this.refreshIcons();
+    setTimeout(() => {
+      toast.style.opacity = "0";
+      toast.style.transition = "opacity 0.3s ease";
+      setTimeout(() => toast.remove(), 300);
+    }, 2800);
+  }
+
+  // =========================================================================
+  // 라우팅 & 네비게이션
+  // =========================================================================
+  navigate(viewName, param = null) {
+    this.currentView = viewName;
+
+    // 모든 뷰 숨김
+    document.querySelectorAll(".page-view").forEach((el) => (el.style.display = "none"));
+
+    // 사이드바 active 갱신
+    document.querySelectorAll(".nav-item").forEach((btn) => btn.classList.remove("active"));
+
+    if (viewName === "home") {
+      document.getElementById("view-home").style.display = "block";
+      document.querySelector('[data-nav="home"]')?.classList.add("active");
+      this.renderHome();
+    } else if (viewName === "board") {
+      this.currentBoardId = param || "job";
+      this.currentSubcategory = "전체";
+      this.currentTagFilter = "전체";
+      document.getElementById("view-board").style.display = "block";
+      document.querySelector(`[data-nav="board-${this.currentBoardId}"]`)?.classList.add("active");
+      this.renderBoard();
+    } else if (viewName === "inbox") {
+      document.getElementById("view-inbox").style.display = "block";
+      document.querySelector('[data-nav="inbox"]')?.classList.add("active");
+      this.renderInbox();
+    } else if (viewName === "schedule") {
+      document.getElementById("view-schedule").style.display = "block";
+      document.querySelector('[data-nav="schedule"]')?.classList.add("active");
+      this.renderSchedule();
+    } else if (viewName === "favorites") {
+      this.currentBoardId = "favorites";
+      this.currentSubcategory = "전체";
+      this.currentTagFilter = "전체";
+      document.getElementById("view-board").style.display = "block";
+      document.querySelector('[data-nav="favorites"]')?.classList.add("active");
+      this.renderFavoritesBoard();
+    } else if (viewName === "search") {
+      document.getElementById("view-search").style.display = "block";
+    } else if (viewName === "settings") {
+      document.getElementById("view-settings").style.display = "block";
+      this.loadSettingsView();
+    } else if (viewName === "pricing") {
+      document.getElementById("view-pricing").style.display = "block";
+      this.updatePricingView();
+    } else if (viewName === "login") {
+      document.getElementById("view-login").style.display = "block";
+    }
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    this.refreshIcons();
+  }
+
+  updateUserHeader() {
+    const user = this.storage.data.currentUser;
+    const nameEls = ["header-user-name", "welcome-user-name", "dropdown-user-name"];
+    nameEls.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = user.name;
+    });
+
+    const planEl = document.getElementById("dropdown-user-plan");
+    if (planEl) {
+      planEl.textContent = user.plan === "pro" ? "프로 플랜 (50GB)" : "무료 플랜 (500MB)";
+    }
+
+    if (user.avatar) {
+      const avatarEl = document.getElementById("header-avatar-img");
+      if (avatarEl) avatarEl.src = user.avatar;
+    }
+  }
+
+  updateStorageWidgets() {
+    const user = this.storage.data.currentUser;
+    const sidebarText = document.getElementById("sidebar-storage-text");
+    const sidebarBar = document.getElementById("sidebar-storage-bar");
+
+    const used = user.usedStorageMB;
+    const total = user.totalStorageMB;
+    const percent = Math.min(100, Math.round((used / total) * 100));
+
+    if (sidebarText) sidebarText.textContent = `${used}MB / ${total >= 1024 ? total / 1024 + "GB" : total + "MB"}`;
+    if (sidebarBar) {
+      sidebarBar.style.width = `${percent}%`;
+      if (percent > 85) {
+        sidebarBar.classList.add("warning");
+      } else {
+        sidebarBar.classList.remove("warning");
+      }
+    }
+  }
+
+  updateInboxBadge() {
+    const inboxItems = this.storage.data.items.filter((item) => !item.boardId || item.boardId === "inbox");
+    const badge = document.getElementById("sidebar-inbox-badge");
+    const homeInboxStat = document.getElementById("home-stat-inbox");
+    const inboxHeader = document.getElementById("inbox-count-header");
+
+    if (badge) badge.textContent = inboxItems.length;
+    if (homeInboxStat) homeInboxStat.textContent = `${inboxItems.length}건`;
+    if (inboxHeader) inboxHeader.textContent = `자료 ${inboxItems.length}건`;
+  }
+
+  // =========================================================================
+  // 1. 홈 화면 (Home)
+  // =========================================================================
+  renderHome() {
+    const data = this.storage.data;
+    const items = data.items.filter((i) => i.boardId && i.boardId !== "inbox");
+    const schedules = data.schedules;
+    const inboxItems = data.items.filter((i) => !i.boardId || i.boardId === "inbox");
+
+    // 통계 갱신
+    document.getElementById("home-stat-total").textContent = `${items.length}건`;
+    document.getElementById("home-stat-week").textContent = `11건`;
+    document.getElementById("home-stat-schedules").textContent = `${schedules.length}건`;
+    document.getElementById("home-stat-inbox").textContent = `${inboxItems.length}건`;
+
+    // 보드별 카운트 배지
+    ["job", "blog", "posts", "memes"].forEach((bId) => {
+      const cnt = data.items.filter((i) => i.boardId === bId).length;
+      const el = document.getElementById(`board-count-${bId}`);
+      if (el) el.textContent = `${cnt}건`;
+    });
+
+    // 최근 저장한 자료 (최종 시안 100% 일치 3개 카드: 이력서 경험 정리 노트, 블로그 글 아이디어 모음, 오늘도 할 수 있다 짤)
+    const recentGrid = document.getElementById("home-recent-cards-grid");
+    if (recentGrid) {
+      // item_7, item_8, item_9 우선 또는 최신순 상위 3개
+      const recentCandidates = [
+        data.items.find((i) => i.id === "item_7"),
+        data.items.find((i) => i.id === "item_8"),
+        data.items.find((i) => i.id === "item_9")
+      ].filter(Boolean);
+
+      const displayItems = recentCandidates.length === 3 ? recentCandidates : items.slice(0, 3);
+      recentGrid.innerHTML = displayItems.map((item) => this.generateCardHTML(item)).join("");
+    }
+
+    // 다가오는 일정 위젯 (동적 렌더링)
+    const upcomingList = document.getElementById("home-upcoming-list");
+    if (upcomingList) {
+      const schs = (this.storage.data.schedules || []).slice(0, 3);
+      const dayNames = ["일", "월", "화", "수", "목", "금", "토"];
+      if (schs.length === 0) {
+        upcomingList.innerHTML = `<div style="text-align:center;padding:16px;color:var(--text-muted);font-size:12px;">등록된 일정이 없습니다.</div>`;
+      } else {
+        upcomingList.innerHTML = schs
+          .map((sch) => {
+            const dObj = new Date(sch.date + "T00:00:00");
+            const mm = String(dObj.getMonth() + 1).padStart(2, "0");
+            const dd = String(dObj.getDate()).padStart(2, "0");
+            const dayName = dayNames[dObj.getDay()] || "";
+            const colorClass = sch.categoryColor || "purple";
+            return `
+              <div class="schedule-item-card" onclick="moadumApp.selectScheduleAndGo('${sch.id}')">
+                <div class="date-pill-badge ${colorClass}">
+                  <div>${mm}.${dd}</div>
+                  <div>(${dayName})</div>
+                </div>
+                <div class="schedule-item-info">
+                  <div class="schedule-item-title">${sch.title}</div>
+                  <div class="schedule-item-meta">${sch.startTime || ""} · ${sch.company || sch.type || "일정"}</div>
+                </div>
+              </div>
+            `;
+          })
+          .join("");
+      }
+    }
+
+    this.refreshIcons();
+  }
+
+  selectScheduleAndGo(schId) {
+    this.selectedScheduleId = schId;
+    const sch = this.storage.data.schedules.find((s) => s.id === schId);
+    if (sch) {
+      this.selectedScheduleDate = sch.date;
+      this.calendarCurrentDate = new Date(sch.date + "T00:00:00");
+    }
+    this.navigate("schedule");
+  }
+
+  // =========================================================================
+  // 2. 보드 화면 (Board)
+  // =========================================================================
+  renderBoard() {
+    const board = this.storage.data.boards.find((b) => b.id === this.currentBoardId);
+    if (!board) return;
+
+    document.getElementById("board-view-title").textContent = board.name;
+    document.getElementById("board-view-desc").textContent = board.description;
+
+    // 소제목 탭 렌더링 (기능명세서 2.2: 전체, 기본 소제목들, 미분류 탭 제공)
+    const subtabsBar = document.getElementById("board-subtabs-bar");
+    let subtabsHTML = `<button class="subtab-btn ${this.currentSubcategory === "전체" ? "active" : ""}" onclick="moadumApp.selectSubcategory('전체')">전체</button>`;
+    board.subcategories.forEach((sub) => {
+      subtabsHTML += `<button class="subtab-btn ${this.currentSubcategory === sub ? "active" : ""}" onclick="moadumApp.selectSubcategory('${sub}')">${sub}</button>`;
+    });
+    // 미분류 탭
+    subtabsHTML += `<button class="subtab-btn ${this.currentSubcategory === "미분류" ? "active" : ""}" onclick="moadumApp.selectSubcategory('미분류')">미분류</button>`;
+    subtabsBar.innerHTML = subtabsHTML;
+
+    // 태그 칩 목록 렌더링
+    this.renderBoardTagChips();
+
+    // 카드 그리드 렌더링
+    this.renderCurrentBoardCards();
+  }
+
+  renderFavoritesBoard() {
+    document.getElementById("board-view-title").textContent = "즐겨찾기";
+    document.getElementById("board-view-desc").textContent = "자주 찾아보고 중요하게 표시해둔 즐겨찾기 자료입니다.";
+
+    document.getElementById("board-subtabs-bar").innerHTML = `
+      <button class="subtab-btn active">전체 즐겨찾기</button>
+    `;
+    this.renderBoardTagChips();
+    this.renderCurrentBoardCards();
+  }
+
+  selectSubcategory(subcat) {
+    this.currentSubcategory = subcat;
+    document.querySelectorAll(".subtab-btn").forEach((btn) => {
+      if (btn.textContent.trim() === subcat) {
+        btn.classList.add("active");
+      } else {
+        btn.classList.remove("active");
+      }
+    });
+    this.renderCurrentBoardCards();
+  }
+
+  promptAddSubcategory() {
+    const name = prompt("새로 추가할 세부 분류(소제목) 이름을 입력하세요:");
+    if (!name || !name.trim()) return;
+    const board = this.storage.data.boards.find((b) => b.id === this.currentBoardId);
+    if (board && !board.subcategories.includes(name.trim())) {
+      board.subcategories.push(name.trim());
+      this.storage.save();
+      this.renderBoard();
+      this.showToast(`'${name.trim()}' 세부 분류가 추가되었습니다.`);
+    }
+  }
+
+  renderBoardTagChips() {
+    const boardItems = this.currentBoardId === "favorites"
+      ? this.storage.data.items.filter((i) => i.isFavorite)
+      : this.storage.data.items.filter((i) => i.boardId === this.currentBoardId);
+
+    const tagSet = new Set();
+    boardItems.forEach((item) => {
+      if (item.tags) item.tags.forEach((t) => tagSet.add(t));
+    });
+
+    const tags = ["전체", ...Array.from(tagSet)];
+    // 최종 시안 취준 보드 주요 태그 유지: 데이터기획, 마케팅, 서비스기획, 금융
+    if (this.currentBoardId === "job") {
+      ["데이터기획", "마케팅", "서비스기획", "금융"].forEach((t) => {
+        if (!tags.includes(t)) tags.push(t);
+      });
+    }
+
+    const wrap = document.getElementById("board-tag-chips-wrap");
+    wrap.innerHTML = tags
+      .map(
+        (t) => `
+        <button class="tag-filter-chip ${this.currentTagFilter === t ? "active" : ""}" onclick="moadumApp.selectTagFilter('${t}')">
+          #${t}
+        </button>
+      `
+      )
+      .join("");
+  }
+
+  selectTagFilter(tag) {
+    this.currentTagFilter = tag;
+    this.renderBoardTagChips();
+    this.renderCurrentBoardCards();
+  }
+
+  renderCurrentBoardCards() {
+    const searchVal = document.getElementById("board-filter-search")?.value.trim().toLowerCase() || "";
+    const typeVal = document.getElementById("board-filter-type")?.value || "all";
+    const sortVal = document.getElementById("board-filter-sort")?.value || "newest";
+
+    let items = this.currentBoardId === "favorites"
+      ? this.storage.data.items.filter((i) => i.isFavorite)
+      : this.storage.data.items.filter((i) => i.boardId === this.currentBoardId);
+
+    // 소제목 필터 (기능명세서 2.2: 미분류 탭 지원)
+    if (this.currentSubcategory === "미분류") {
+      items = items.filter((i) => !i.subcategory || i.subcategory === "미분류" || i.subcategory === "분류 없음");
+    } else if (this.currentSubcategory !== "전체") {
+      items = items.filter((i) => i.subcategory === this.currentSubcategory);
+    }
+
+    // 태그 필터
+    if (this.currentTagFilter !== "전체") {
+      items = items.filter((i) => i.tags && i.tags.includes(this.currentTagFilter));
+    }
+
+    // 유형 필터
+    if (typeVal !== "all") {
+      items = items.filter((i) => i.type === typeVal);
+    }
+
+    // 검색어 필터
+    if (searchVal) {
+      items = items.filter(
+        (i) =>
+          (i.title && i.title.toLowerCase().includes(searchVal)) ||
+          (i.summary && i.summary.toLowerCase().includes(searchVal)) ||
+          (i.content && i.content.toLowerCase().includes(searchVal)) ||
+          (i.tags && i.tags.some((t) => t.toLowerCase().includes(searchVal)))
+      );
+    }
+
+    // 정렬
+    items.sort((a, b) => {
+      if (sortVal === "newest") return new Date(b.createdAt) - new Date(a.createdAt);
+      if (sortVal === "oldest") return new Date(a.createdAt) - new Date(b.createdAt);
+      if (sortVal === "title") return a.title.localeCompare(b.title);
+      return 0;
+    });
+
+    const grid = document.getElementById("board-cards-grid");
+    const empty = document.getElementById("board-empty-state");
+
+    if (items.length === 0) {
+      grid.innerHTML = "";
+      empty.style.display = "block";
+    } else {
+      empty.style.display = "none";
+      // 짤 보관함(memes)은 핀터레스트 스타일 핀 그리드로 렌더링!
+      if (this.currentBoardId === "memes") {
+        grid.className = "pinterest-pin-grid";
+        grid.innerHTML = items.map((item) => this.generatePinCardHTML(item)).join("");
+      } else {
+        grid.className = "card-grid-3";
+        grid.innerHTML = items.map((item) => this.generateCardHTML(item)).join("");
+      }
+    }
+
+    this.refreshIcons();
+  }
+
+  // =========================================================================
+  // 핀터레스트 스타일 핀 카드 생성기 (사용자 요청: 짤 보관함 전용)
+  // =========================================================================
+  generatePinCardHTML(item) {
+    const isFav = item.isFavorite;
+    const imgSrc = item.image || "assets/otter_meme.png";
+
+    return `
+      <div class="pin-card" onclick="moadumApp.openItemDetail('${item.id}')">
+        <div class="pin-img-wrapper">
+          <img src="${imgSrc}" alt="${item.title}" class="pin-img" loading="lazy" onerror="this.src='assets/otter_meme.png'">
+          <div class="pin-hover-overlay">
+            <div class="pin-overlay-top">
+              <button class="pin-save-btn" onclick="event.stopPropagation(); moadumApp.toggleFavorite('${item.id}')">
+                ${isFav ? "저장됨" : "저장"}
+              </button>
+            </div>
+            <div class="pin-overlay-bottom">
+              <span style="font-weight:600; text-shadow: 0 1px 2px rgba(0,0,0,0.8);">${item.subcategory || "짤"}</span>
+              <span style="background:rgba(0,0,0,0.55);padding:3px 8px;border-radius:12px;font-size:11px;font-weight:600;">상세보기</span>
+            </div>
+          </div>
+        </div>
+        <div class="pin-info-bar">
+          <div class="pin-title" title="${item.title}">${item.title}</div>
+          <button class="pin-star-btn ${isFav ? "active" : ""}" title="즐겨찾기" onclick="event.stopPropagation(); moadumApp.toggleFavorite('${item.id}')">
+            <i data-lucide="star" style="width:16px;height:16px;fill:${isFav ? "var(--star-gold)" : "none"};"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  // =========================================================================
+  // 카드 HTML 생성기 (최종 시안 100% 동일 디자인)
+  // =========================================================================
+  generateCardHTML(item) {
+    const isFav = item.isFavorite;
+    const typeLabelMap = { memo: "메모", image: "이미지", link: "링크", schedule: "일정" };
+    const typeIconMap = { memo: "file-text", image: "image", link: "link", schedule: "calendar" };
+
+    const typeLabel = typeLabelMap[item.type] || "메모";
+    const typeIcon = typeIconMap[item.type] || "file-text";
+
+    // 날짜 포맷 (예: 10월 28일)
+    const dateObj = new Date(item.createdAt);
+    const dateStr = !isNaN(dateObj) ? `${dateObj.getMonth() + 1}월 ${dateObj.getDate()}일` : item.createdAt;
+
+    // 썸네일 표시 여부 (이미지 타입이거나 링크 썸네일이 있는 경우)
+    let thumbHTML = "";
+    if (item.image) {
+      thumbHTML = `
+        <div class="card-thumb-wrap">
+          <img src="${item.image}" alt="${item.title}" class="card-thumb-img" onerror="this.onerror=null;this.parentElement.style.display='none';">
+        </div>
+      `;
+    }
+
+    // 태그 칩
+    const tagsHTML = (item.tags || [])
+      .slice(0, 3)
+      .map((t) => `<span class="tag-badge">#${t}</span>`)
+      .join("");
+    const moreTagsCount = (item.tags || []).length > 3 ? `<span class="tag-badge">+${item.tags.length - 3}</span>` : "";
+
+    return `
+      <div class="content-card" onclick="moadumApp.openItemDetail('${item.id}')">
+        ${thumbHTML}
+        <div class="card-body">
+          <div class="card-top-meta">
+            <span class="card-type-chip">
+              <i data-lucide="${typeIcon}" class="card-type-icon"></i>
+              <span>${typeLabel}</span>
+            </span>
+            <button class="card-menu-btn" title="더보기" onclick="event.stopPropagation(); moadumApp.openMoveBoardModal('${item.id}')">
+              <i data-lucide="more-horizontal" style="width:16px;height:16px;"></i>
+            </button>
+          </div>
+
+          <div class="card-title">${item.title}</div>
+          <div class="card-summary">${item.summary || item.content || (item.url ? item.url : "")}</div>
+
+          <div class="card-tags-row">
+            ${tagsHTML}
+            ${moreTagsCount}
+          </div>
+
+          <div class="card-footer">
+            <span>${typeLabel} · ${dateStr}</span>
+            <button class="star-fav-btn ${isFav ? "active" : ""}" title="즐겨찾기" onclick="event.stopPropagation(); moadumApp.toggleFavorite('${item.id}')">
+              <i data-lucide="star" style="width:16px;height:16px;fill:${isFav ? "var(--star-gold)" : "none"};"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  toggleFavorite(itemId) {
+    const item = this.storage.data.items.find((i) => i.id === itemId);
+    if (!item) return;
+    item.isFavorite = !item.isFavorite;
+    this.storage.save();
+
+    this.showToast(item.isFavorite ? "즐겨찾기에 추가되었습니다 ⭐" : "즐겨찾기에서 해제되었습니다.");
+    if (this.currentView === "home") this.renderHome();
+    else if (this.currentView === "board") this.renderCurrentBoardCards();
+    else if (this.currentView === "favorites") this.renderFavoritesBoard();
+  }
+
+  // =========================================================================
+  // 3. 임시 보관함 (Inbox)
+  // =========================================================================
+  renderInbox() {
+    const searchVal = document.getElementById("inbox-filter-search")?.value.trim().toLowerCase() || "";
+    const typeVal = document.getElementById("inbox-filter-type")?.value || "all";
+
+    let inboxItems = this.storage.data.items.filter((i) => !i.boardId || i.boardId === "inbox");
+
+    if (typeVal !== "all") {
+      inboxItems = inboxItems.filter((i) => i.type === typeVal);
+    }
+    if (searchVal) {
+      inboxItems = inboxItems.filter(
+        (i) =>
+          (i.title && i.title.toLowerCase().includes(searchVal)) ||
+          (i.summary && i.summary.toLowerCase().includes(searchVal))
+      );
+    }
+
+    const grid = document.getElementById("inbox-cards-grid");
+    if (inboxItems.length === 0) {
+      grid.innerHTML = `
+        <div style="grid-column: 1 / -1; text-align:center; padding: 60px 20px;">
+          <div style="font-size: 36px; margin-bottom: 12px;">🎉</div>
+          <h3 style="font-size: 16px; font-weight: 700; color: var(--text-title); margin-bottom: 4px;">임시 보관함이 비어있어요!</h3>
+          <p style="font-size: 13px; color: var(--text-muted);">분류할 자료가 생기면 언제든 빠르게 저장해보세요.</p>
+        </div>
+      `;
+    } else {
+      grid.innerHTML = inboxItems
+        .map((item) => {
+          return `
+          <div class="content-card" onclick="moadumApp.openItemDetail('${item.id}')">
+            ${item.image ? `<div class="card-thumb-wrap"><img src="${item.image}" class="card-thumb-img"></div>` : ""}
+            <div class="card-body">
+              <div class="card-top-meta">
+                <span class="card-type-chip">${item.type === "image" ? "이미지" : item.type === "link" ? "링크" : "메모"}</span>
+                <span style="font-size:11px;color:var(--text-sub);">미분류</span>
+              </div>
+              <div class="card-title">${item.title}</div>
+              <div class="card-summary">${item.summary || item.content}</div>
+              <div class="card-tags-row">
+                ${(item.tags || []).map((t) => `<span class="tag-badge">#${t}</span>`).join("")}
+              </div>
+              <div style="margin-top:auto;padding-top:12px;display:flex;gap:8px;">
+                <button class="btn-primary" style="flex:1;justify-content:center;font-size:12px;" onclick="event.stopPropagation(); moadumApp.openMoveBoardModal('${item.id}')">
+                  <i data-lucide="folder-input" style="width:14px;height:14px;"></i>
+                  <span>보드로 이동</span>
+                </button>
+                <button class="btn-secondary" style="color:var(--accent-red-text);border-color:var(--accent-red-border);padding:6px 12px;font-size:12px;display:flex;align-items:center;gap:4px;" title="삭제" onclick="event.stopPropagation(); moadumApp.deleteItem('${item.id}')">
+                  <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
+                  <span>삭제</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+        })
+        .join("");
+    }
+    this.updateInboxBadge();
+    this.refreshIcons();
+  }
+
+  // =========================================================================
+  // 4. 일정과 마감 캘린더 (Schedule View - 최종 시안 우하단 100% 동일)
+  // =========================================================================
+  renderSchedule() {
+    // 기간 라벨 갱신
+    const periodTitle = document.getElementById("cal-period-title");
+    if (periodTitle) {
+      const year = this.calendarCurrentDate.getFullYear();
+      const month = this.calendarCurrentDate.getMonth() + 1;
+      periodTitle.textContent = `${year}년 ${month}월`;
+    }
+
+    if (this.calendarViewMode === "week") {
+      this.renderWeekView();
+    } else if (this.calendarViewMode === "month") {
+      this.renderMonthView();
+    } else if (this.calendarViewMode === "list") {
+      this.renderListView();
+    }
+
+    // 우측 상세 패널 렌더링
+    this.renderScheduleSideDetail();
+    this.refreshIcons();
+  }
+
+  setCalendarView(mode) {
+    this.calendarViewMode = mode;
+    ["week", "month", "list"].forEach((m) => {
+      document.getElementById(`btn-view-${m}`)?.classList.toggle("active", m === mode);
+      document.getElementById(`cal-${m}-view`).style.display = m === mode ? "block" : "none";
+    });
+    this.renderSchedule();
+  }
+
+  setCalendarToday() {
+    this.calendarCurrentDate = new Date();
+    this.selectedScheduleDate = this.formatLocalDate(this.calendarCurrentDate);
+    const sch = (this.storage.data.schedules || []).find((s) => s.date === this.selectedScheduleDate);
+    if (sch) this.selectedScheduleId = sch.id;
+    this.renderSchedule();
+  }
+
+  prevCalendarPeriod() {
+    if (this.calendarViewMode === "week") {
+      this.calendarCurrentDate.setDate(this.calendarCurrentDate.getDate() - 7);
+    } else {
+      this.calendarCurrentDate.setMonth(this.calendarCurrentDate.getMonth() - 1);
+    }
+    this.renderSchedule();
+  }
+
+  nextCalendarPeriod() {
+    if (this.calendarViewMode === "week") {
+      this.calendarCurrentDate.setDate(this.calendarCurrentDate.getDate() + 7);
+    } else {
+      this.calendarCurrentDate.setMonth(this.calendarCurrentDate.getMonth() + 1);
+    }
+    this.renderSchedule();
+  }
+
+  // 주간 타임테이블 렌더링 (월~일 7일 & 09:00 ~ 20:00)
+  renderWeekView() {
+    const weekDates = this.getWeekDates(this.calendarCurrentDate);
+
+    // 헤더 행
+    const headerRow = document.getElementById("week-header-row");
+    headerRow.innerHTML =
+      `<div class="week-day-col-header" style="border-left:none;">시간</div>` +
+      weekDates
+        .map(
+          (d) => `
+        <div class="week-day-col-header ${d.isToday ? "today" : ""}" style="cursor:pointer;" onclick="moadumApp.selectDate('${d.date}')">
+          ${d.label}
+        </div>
+      `
+        )
+        .join("");
+
+    // 바디 행 (09:00 ~ 20:00 시간대 행)
+    const hours = [
+      "09:00", "10:00", "11:00", "12:00", "13:00", "14:00",
+      "15:00", "16:00", "17:00", "18:00", "19:00", "20:00"
+    ];
+
+    const bodyEl = document.getElementById("timetable-scroll-body");
+    let rowsHTML = "";
+
+    hours.forEach((timeStr) => {
+      const hourInt = parseInt(timeStr.split(":")[0]);
+      rowsHTML += `
+        <div class="time-row" data-hour="${hourInt}">
+          <div class="time-label-cell">${timeStr}</div>
+          ${weekDates
+            .map(
+              (d) => `
+            <div class="time-grid-cell" data-date="${d.date}" data-hour="${hourInt}" onclick="moadumApp.handleCellClick('${d.date}', '${timeStr}')">
+              <!-- 일정 블록이 들어갈 자리 -->
+            </div>
+          `
+            )
+            .join("")}
+        </div>
+      `;
+    });
+
+    bodyEl.innerHTML = rowsHTML;
+
+    // 현재 주간 날짜 세트
+    const weekDateSet = new Set(weekDates.map((d) => d.date));
+    const schedules = this.storage.data.schedules || [];
+
+    // 주간에 속한 모든 일정 블록 배치
+    schedules.forEach((sch) => {
+      if (weekDateSet.has(sch.date)) {
+        let startHour = 10;
+        let durationHours = 2;
+        if (sch.startTime) {
+          startHour = parseInt(sch.startTime.split(":")[0], 10);
+        }
+        if (sch.endTime && sch.startTime) {
+          const endHour = parseInt(sch.endTime.split(":")[0], 10);
+          durationHours = Math.max(1, endHour - startHour);
+          if (sch.startTime === sch.endTime) durationHours = 1;
+        }
+        const clampedHour = Math.min(Math.max(startHour, 9), 20);
+        const subtext = sch.company ? `${sch.startTime || ""} ${sch.company}` : `${sch.startTime || ""} ~ ${sch.endTime || ""}`;
+        this.placeTimeBlock(
+          sch.date,
+          clampedHour,
+          durationHours,
+          sch.id,
+          sch.title,
+          subtext,
+          sch.categoryColor || "purple"
+        );
+      }
+    });
+  }
+
+  placeTimeBlock(dateStr, startHour, durationHours, scheduleId, title, subtext, colorClass) {
+    const targetCell = document.querySelector(`.time-grid-cell[data-date="${dateStr}"][data-hour="${startHour}"]`);
+    if (!targetCell) return;
+
+    const blockHeight = Math.max(durationHours * 48 - 6, 42); // 48px per hour
+    const block = document.createElement("div");
+    block.className = `cal-time-block ${colorClass}`;
+    block.style.height = `${blockHeight}px`;
+    block.innerHTML = `
+      <div class="block-title">${title}</div>
+      <div class="block-time">${subtext}</div>
+    `;
+    block.onclick = (e) => {
+      e.stopPropagation();
+      this.openScheduleDetail(scheduleId);
+    };
+    targetCell.appendChild(block);
+  }
+
+  handleCellClick(dateStr, timeStr) {
+    this.selectDate(dateStr);
+  }
+
+  selectDate(dateStr) {
+    this.selectedScheduleDate = dateStr;
+    const sch = (this.storage.data.schedules || []).find((s) => s.date === dateStr);
+    if (sch) {
+      this.selectedScheduleId = sch.id;
+    }
+    this.renderScheduleSideDetail();
+  }
+
+  // 월간 달력 렌더링
+  renderMonthView() {
+    const grid = document.getElementById("month-calendar-grid");
+    const schedules = this.storage.data.schedules || [];
+
+    const year = this.calendarCurrentDate.getFullYear();
+    const month = this.calendarCurrentDate.getMonth(); // 0 ~ 11
+    const firstDay = new Date(year, month, 1).getDay(); // 0(일) ~ 6(토)
+    const lastDate = new Date(year, month + 1, 0).getDate();
+    const todayStr = this.formatLocalDate(new Date());
+
+    let cellsHTML = "";
+
+    // 요일 헤더
+    const dayHeaders = ["일", "월", "화", "수", "목", "금", "토"];
+    dayHeaders.forEach((dh) => {
+      cellsHTML += `<div style="text-align:center;font-size:12px;font-weight:700;color:var(--text-sub);padding:8px 0;background:var(--bg-subtle, #F8F9FA);border-radius:6px;margin-bottom:4px;">${dh}</div>`;
+    });
+
+    // 시작 요일 공백 칸
+    for (let i = 0; i < firstDay; i++) {
+      cellsHTML += `<div class="month-day-cell empty" style="background:transparent;border:none;min-height:70px;"></div>`;
+    }
+
+    // 날짜별 셀
+    for (let day = 1; day <= lastDate; day++) {
+      const dayStr = day < 10 ? `0${day}` : `${day}`;
+      const monthStr = month + 1 < 10 ? `0${month + 1}` : `${month + 1}`;
+      const fullDate = `${year}-${monthStr}-${dayStr}`;
+      const daySchedules = schedules.filter((s) => s.date === fullDate);
+      const isToday = fullDate === todayStr;
+
+      cellsHTML += `
+        <div class="month-day-cell ${isToday ? "today" : ""}" style="cursor:pointer;${isToday ? "border:2px solid var(--primary);" : ""}" onclick="moadumApp.selectDate('${fullDate}')">
+          <div class="month-day-num" style="${isToday ? "font-weight:800;color:var(--primary);" : ""}">${day}</div>
+          ${daySchedules
+            .map(
+              (s) => `
+            <div class="month-cal-badge" style="cursor:pointer;background-color:var(--${s.categoryColor === "purple" ? "primary-light" : s.categoryColor === "red" ? "accent-red-bg" : "accent-green-bg"}); color:var(--${s.categoryColor === "purple" ? "primary-text" : s.categoryColor === "red" ? "accent-red-text" : "accent-green-text"}); font-weight:600;margin-top:2px;padding:3px 6px;border-radius:4px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" onclick="event.stopPropagation(); moadumApp.openScheduleDetail('${s.id}')">
+              ${s.title}
+            </div>
+          `
+            )
+            .join("")}
+        </div>
+      `;
+    }
+    grid.innerHTML = cellsHTML;
+  }
+
+  // 리스트 뷰 렌더링
+  renderListView() {
+    const listEl = document.getElementById("calendar-list-container");
+    const schedules = this.storage.data.schedules || [];
+
+    if (schedules.length === 0) {
+      listEl.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-muted);">등록된 일정이 없습니다.</div>`;
+      return;
+    }
+
+    listEl.innerHTML = schedules
+      .map((s) => {
+        return `
+        <div class="linked-item-pill" style="padding:14px;cursor:pointer;" onclick="moadumApp.openScheduleDetail('${s.id}')">
+          <div class="linked-item-left">
+            <span class="tag-badge" style="background-color:var(--${s.categoryColor === "purple" ? "primary-light" : s.categoryColor === "red" ? "accent-red-bg" : "accent-green-bg"}); color:var(--${s.categoryColor === "purple" ? "primary-text" : s.categoryColor === "red" ? "accent-red-text" : "accent-green-text"});">
+              ${s.type}
+            </span>
+            <div>
+              <div class="linked-item-title">${s.title} ${s.company ? `(${s.company})` : ""}</div>
+              <div class="linked-item-sub">${s.date} ${s.startTime || ""} ~ ${s.endTime || ""}</div>
+            </div>
+          </div>
+          <button class="btn-secondary" style="font-size:11px;padding:4px 8px;" onclick="event.stopPropagation(); moadumApp.openScheduleDetail('${s.id}')">자세히 보기</button>
+        </div>
+      `;
+      })
+      .join("");
+  }
+
+  // 일정 상세 열기 (우측 패널 + 상세 모달 동시 활성화)
+  openScheduleDetail(scheduleId) {
+    const sch = (this.storage.data.schedules || []).find((s) => s.id === scheduleId);
+    if (!sch) return;
+
+    this.selectedScheduleId = scheduleId;
+    this.selectedScheduleDate = sch.date;
+    this.renderScheduleSideDetail();
+    this.openScheduleDetailModal(scheduleId);
+  }
+
+  // 일정 상세 모달 열기
+  openScheduleDetailModal(scheduleId) {
+    const sch = (this.storage.data.schedules || []).find((s) => s.id === scheduleId);
+    if (!sch) return;
+
+    const modal = document.getElementById("modal-schedule-detail");
+    if (!modal) return;
+
+    const badge = document.getElementById("sch-detail-badge");
+    const ddayEl = document.getElementById("sch-detail-dday");
+    const body = document.getElementById("sch-detail-modal-body");
+    const btnDel = document.getElementById("sch-detail-btn-delete");
+
+    const badgeBg =
+      sch.categoryColor === "red"
+        ? "var(--accent-red-bg)"
+        : sch.categoryColor === "green"
+        ? "var(--accent-green-bg)"
+        : "var(--primary-light)";
+    const badgeColor =
+      sch.categoryColor === "red"
+        ? "var(--accent-red-text)"
+        : sch.categoryColor === "green"
+        ? "var(--accent-green-text)"
+        : "var(--primary-text)";
+
+    if (badge) {
+      badge.style.backgroundColor = badgeBg;
+      badge.style.color = badgeColor;
+      badge.textContent = sch.type || "일정";
+    }
+
+    const ddayText = this.calculateDDay(sch.date);
+    if (ddayEl) {
+      ddayEl.textContent = ddayText;
+      ddayEl.style.backgroundColor = sch.categoryColor === "red" ? "var(--accent-red-text)" : "var(--primary)";
+    }
+
+    const linkedIds = sch.linkedItemIds || [];
+    const linkedItems = (this.storage.data.items || []).filter((i) => linkedIds.includes(i.id));
+
+    if (body) {
+      body.innerHTML = `
+        <div style="margin-bottom:16px;">
+          <h2 style="font-size:20px;font-weight:800;color:var(--text-title);margin-bottom:8px;">${sch.title}</h2>
+          <div style="font-size:13px;color:var(--text-sub);display:flex;flex-wrap:wrap;align-items:center;gap:12px;">
+            <span><i data-lucide="calendar" style="width:14px;height:14px;display:inline-block;vertical-align:-2px;"></i> ${sch.date} (${sch.startTime || "종일"}${sch.endTime && sch.endTime !== sch.startTime ? " ~ " + sch.endTime : ""})</span>
+            ${sch.company ? `<span><i data-lucide="map-pin" style="width:14px;height:14px;display:inline-block;vertical-align:-2px;"></i> ${sch.company}</span>` : ""}
+          </div>
+        </div>
+
+        <div style="background:var(--bg-subtle, #F8F9FA);border-radius:12px;padding:14px;margin-bottom:16px;">
+          <div style="font-size:12px;font-weight:700;color:var(--text-sub);margin-bottom:6px;">메모</div>
+          <div style="font-size:13.5px;color:var(--text-body);line-height:1.6;white-space:pre-wrap;">${sch.memo || "등록된 메모가 없습니다."}</div>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <div style="font-size:13px;font-weight:700;color:var(--text-title);">연결된 자료 (${linkedItems.length})</div>
+            <button class="btn-secondary" style="font-size:11px;padding:4px 8px;" onclick="moadumApp.closeModal('modal-schedule-detail'); moadumApp.openLinkItemsModal('${sch.id}')">+ 자료 연결</button>
+          </div>
+          ${
+            linkedItems.length === 0
+              ? `<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">연결된 자료가 없습니다.</div>`
+              : `
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              ${linkedItems
+                .map(
+                  (item) => `
+                <div class="linked-item-pill" style="cursor:pointer;" onclick="moadumApp.closeModal('modal-schedule-detail'); moadumApp.openItemDetail('${item.id}')">
+                  <div class="linked-item-left">
+                    <i data-lucide="${item.type === "image" ? "image" : item.type === "link" ? "link" : "file-text"}" style="width:16px;height:16px;color:var(--primary);"></i>
+                    <span class="linked-item-title">${item.title}</span>
+                  </div>
+                </div>
+              `
+                )
+                .join("")}
+            </div>
+          `
+          }
+        </div>
+      `;
+    }
+
+    if (btnDel) {
+      btnDel.onclick = () => this.deleteSchedule(sch.id);
+    }
+
+    this.openModal("modal-schedule-detail");
+    this.refreshIcons();
+  }
+
+  // 일정 삭제
+  deleteSchedule(scheduleId) {
+    const sch = (this.storage.data.schedules || []).find((s) => s.id === scheduleId);
+    if (!sch) return;
+
+    if (!confirm(`'${sch.title}' 일정을 완전히 삭제하시겠습니까?`)) {
+      return;
+    }
+
+    this.storage.data.schedules = this.storage.data.schedules.filter((s) => s.id !== scheduleId);
+    if (this.storage.data.notifications) {
+      this.storage.data.notifications = this.storage.data.notifications.filter((n) => n.scheduleId !== scheduleId);
+    }
+    this.storage.save();
+
+    if (this.selectedScheduleId === scheduleId) {
+      const remaining = this.storage.data.schedules || [];
+      this.selectedScheduleId = remaining[0] ? remaining[0].id : null;
+      if (remaining[0]) {
+        this.selectedScheduleDate = remaining[0].date;
+      }
+    }
+
+    this.closeModal("modal-schedule-detail");
+    this.showToast("일정이 성공적으로 삭제되었습니다 🗑️");
+    this.renderSchedule();
+    if (this.currentView === "home") this.renderHome();
+  }
+
+  // 일정 우측 상세 패널 (동적 상세 정보 + 삭제 버튼)
+  renderScheduleSideDetail() {
+    const sidePanel = document.getElementById("schedule-side-panel");
+    if (!sidePanel) return;
+
+    const schedules = this.storage.data.schedules || [];
+    const schedule =
+      schedules.find((s) => s.id === this.selectedScheduleId) ||
+      schedules.find((s) => s.date === this.selectedScheduleDate) ||
+      schedules[0];
+
+    if (!schedule) {
+      sidePanel.innerHTML = `
+        <div style="text-align:center;padding:40px 16px;color:var(--text-muted);">
+          <i data-lucide="calendar" style="width:36px;height:36px;margin:0 auto 10px;opacity:0.35;display:block;"></i>
+          <div style="font-weight:600;margin-bottom:6px;">선택된 일정이 없습니다.</div>
+          <p style="font-size:12px;margin-bottom:14px;">새 일정을 추가하거나 캘린더에서 일정을 선택해주세요.</p>
+          <button class="btn-primary" style="font-size:12px;padding:6px 14px;margin:0 auto;" onclick="moadumApp.openAddScheduleModal()">+ 새 일정 추가</button>
+        </div>
+      `;
+      this.refreshIcons();
+      return;
+    }
+
+    // 날짜 포맷
+    const dateObj = new Date(schedule.date + "T00:00:00");
+    const dayNames = ["일", "월", "화", "수", "목", "금", "토"];
+    const dateTitle = `${dateObj.getMonth() + 1}월 ${dateObj.getDate()}일 (${dayNames[dateObj.getDay()] || ""})`;
+    const ddayText = this.calculateDDay(schedule.date);
+
+    // 연결된 자료 목록
+    const linkedIds = schedule.linkedItemIds || [];
+    const linkedItems = (this.storage.data.items || []).filter((i) => linkedIds.includes(i.id));
+
+    sidePanel.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <div class="side-panel-date-title" style="margin-bottom:0;">${dateTitle}</div>
+        <button class="btn-secondary" style="font-size:11.5px;padding:4px 8px;color:#ef4444;border-color:rgba(239,68,68,0.3);display:inline-flex;align-items:center;gap:4px;" onclick="moadumApp.deleteSchedule('${schedule.id}')" title="일정 삭제">
+          <i data-lucide="trash-2" style="width:13px;height:13px;"></i>
+          <span>삭제</span>
+        </button>
+      </div>
+
+      <!-- 메인 일정 카드 -->
+      <div class="side-schedule-hero-card" style="background-color: ${schedule.categoryColor === "red" ? "var(--accent-red-bg)" : schedule.categoryColor === "green" ? "var(--accent-green-bg)" : "var(--primary-light)"}; border-color: ${schedule.categoryColor === "red" ? "var(--accent-red-border)" : schedule.categoryColor === "green" ? "var(--accent-green-border)" : "var(--primary-border)"}; cursor:pointer;" onclick="moadumApp.openScheduleDetailModal('${schedule.id}')" title="클릭하여 상세 모달 열기">
+        <div class="side-hero-top">
+          <div class="side-hero-title" style="color: ${schedule.categoryColor === "red" ? "var(--accent-red-text)" : schedule.categoryColor === "green" ? "var(--accent-green-text)" : "var(--primary-text)"};">
+            <i data-lucide="calendar" style="width:16px;height:16px;"></i>
+            <span>${schedule.title}</span>
+          </div>
+          <span class="dday-badge" style="background-color: ${schedule.categoryColor === "red" ? "var(--accent-red-text)" : "var(--primary)"};">${ddayText}</span>
+        </div>
+
+        <div class="side-hero-meta">
+          <div><strong>일시:</strong> ${schedule.date} ${schedule.startTime || ""}</div>
+          <div><strong>대상:</strong> ${schedule.company || "-"}</div>
+        </div>
+
+        <div class="side-hero-memo">
+          ${schedule.memo || "등록된 메모가 없습니다."}
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text-sub);text-align:right;">🔍 클릭 시 전체 화면으로 보기</div>
+      </div>
+
+      <!-- 연결된 자료 섹션 -->
+      <div class="linked-items-section">
+        <div class="linked-section-header">
+          <span>연결된 자료 (${linkedItems.length})</span>
+        </div>
+
+        ${linkedItems
+          .map(
+            (item) => `
+          <div class="linked-item-pill" onclick="moadumApp.openItemDetail('${item.id}')">
+            <div class="linked-item-left">
+              <i data-lucide="${item.type === "image" ? "image" : item.type === "link" ? "link" : "file-text"}" style="width:16px;height:16px;color:var(--primary);"></i>
+              <div>
+                <div class="linked-item-title">${item.title}</div>
+                <div class="linked-item-sub">${item.type === "memo" ? "메모" : item.type === "link" ? "링크" : "문서"} · ${item.createdAt ? item.createdAt.slice(5, 10).replace("-", "월 ") + "일" : ""}</div>
+              </div>
+            </div>
+            <button class="card-menu-btn" title="연결 해제" onclick="event.stopPropagation(); moadumApp.unlinkItemFromSchedule('${schedule.id}', '${item.id}')">
+              <i data-lucide="unlink" style="width:14px;height:14px;"></i>
+            </button>
+          </div>
+        `
+          )
+          .join("")}
+
+        <!-- [+ 자료 연결] 버튼 -->
+        <button class="btn-link-more-item" onclick="moadumApp.openLinkItemsModal('${schedule.id}')">
+          <i data-lucide="plus" style="width:14px;height:14px;"></i>
+          <span>자료 연결</span>
+        </button>
+      </div>
+    `;
+
+    this.refreshIcons();
+  }
+
+        ${linkedItems
+          .map(
+            (item) => `
+          <div class="linked-item-pill" onclick="moadumApp.openItemDetail('${item.id}')">
+            <div class="linked-item-left">
+              <i data-lucide="${item.type === "image" ? "image" : item.type === "link" ? "link" : "file-text"}" style="width:16px;height:16px;color:var(--primary);"></i>
+              <div>
+                <div class="linked-item-title">${item.title}</div>
+                <div class="linked-item-sub">${item.type === "memo" ? "메모" : item.type === "link" ? "링크" : "문서"} · ${item.createdAt.slice(5, 10).replace("-", "월 ")}일</div>
+              </div>
+            </div>
+            <button class="card-menu-btn" title="연결 해제" onclick="event.stopPropagation(); moadumApp.unlinkItemFromSchedule('${schedule.id}', '${item.id}')">
+              <i data-lucide="unlink" style="width:14px;height:14px;"></i>
+            </button>
+          </div>
+        `
+          )
+          .join("")}
+
+        <!-- [+ 자료 연결] 버튼 -->
+        <button class="btn-link-more-item" onclick="moadumApp.openLinkItemsModal('${schedule.id}')">
+          <i data-lucide="plus" style="width:14px;height:14px;"></i>
+          <span>자료 연결</span>
+        </button>
+      </div>
+    `;
+
+    this.refreshIcons();
+  }
+
+  unlinkItemFromSchedule(scheduleId, itemId) {
+    const sch = this.storage.data.schedules.find((s) => s.id === scheduleId);
+    if (!sch) return;
+    sch.linkedItemIds = (sch.linkedItemIds || []).filter((id) => id !== itemId);
+    this.storage.save();
+    this.showToast("연결된 자료가 해제되었습니다.");
+    this.renderScheduleSideDetail();
+  }
+
+  // =========================================================================
+  // 5. 빠른 저장 모달 (Quick Save Modal - 최종 시안 좌하단 100% 동일)
+  // =========================================================================
+  openQuickSave(preselectedBoard = "job") {
+    this.quickSaveTags = [];
+    this.currentUploadedImageDataUrl = null;
+
+    document.getElementById("qs-meta-title").value = "";
+    document.getElementById("qs-memo-body").value = "";
+    document.getElementById("qs-image-desc").value = "";
+    document.getElementById("qs-link-url").value = "";
+    document.getElementById("qs-link-desc").value = "";
+
+    const qsDate = document.getElementById("qs-sch-date");
+    if (qsDate) qsDate.value = this.formatLocalDate(new Date());
+
+    // 보드 셀렉트 설정
+    const boardSelect = document.getElementById("qs-meta-board");
+    if (boardSelect) {
+      boardSelect.value = preselectedBoard;
+      this.handleBoardSelectChange();
+    }
+
+    this.renderQuickSaveTags();
+    this.clearImageUpload();
+    this.setQuickSaveTab("memo");
+    this.openModal("modal-quick-save");
+  }
+
+  setQuickSaveTab(type) {
+    ["memo", "image", "link", "schedule"].forEach((t) => {
+      document.getElementById(`qs-tab-${t}`)?.classList.toggle("active", t === type);
+      const content = document.getElementById(`qs-content-${t}`);
+      if (content) content.style.display = t === type ? "block" : "none";
+    });
+    this.refreshIcons();
+  }
+
+  handleBoardSelectChange() {
+    const boardId = document.getElementById("qs-meta-board").value;
+    const subcatSelect = document.getElementById("qs-meta-subcat");
+    subcatSelect.innerHTML = "";
+
+    if (boardId === "inbox") {
+      subcatSelect.innerHTML = `<option value="">분류 없음 (임시 보관함)</option>`;
+      return;
+    }
+
+    const board = this.storage.data.boards.find((b) => b.id === boardId);
+    if (board && board.subcategories.length > 0) {
+      board.subcategories.forEach((sub) => {
+        subcatSelect.innerHTML += `<option value="${sub}">${sub}</option>`;
+      });
+    } else {
+      subcatSelect.innerHTML = `<option value="">일반</option>`;
+    }
+  }
+
+  // =========================================================================
+  // 해시태그 자동완성 추천 시스템 (사용자 요청: 블로그 스타일 파란색 박스)
+  // =========================================================================
+  getAllAvailableTags() {
+    // 1. 사용자 첨부 이미지 및 자주 쓰이는 대표 해시태그
+    const baseTags = [
+      "취준생지원금", "취준생키우기공략", "취준생", "취준생일기", "취업준비", "첫글",
+      "데이터기획", "면접예상질문", "면접준비", "자소서소재", "기업분석",
+      "카카오뱅크", "토스", "현대카드", "블로그글감", "동기부여",
+      "합격후기", "포트폴리오", "인턴십", "스터디", "SQL", "파이썬"
+    ];
+
+    // 2. DB에 저장된 실제 태그들 합치기
+    const set = new Set(baseTags);
+    if (this.storage && this.storage.data && this.storage.data.items) {
+      this.storage.data.items.forEach(item => {
+        if (item.tags) {
+          item.tags.forEach(t => set.add(t));
+        }
+      });
+    }
+    return Array.from(set);
+  }
+
+  // 태그 입력창(# 또는 글자 입력 시) 추천 노출
+  handleTagTextInput(event) {
+    const input = event.target;
+    const rawVal = input.value.trim();
+
+    if (!rawVal) {
+      document.getElementById("qs-tag-autocomplete-wrap").style.display = "none";
+      return;
+    }
+
+    // '#'만 입력했거나 '#단어' 입력 시 쿼리 추출
+    const query = rawVal.startsWith("#") ? rawVal.substring(1) : rawVal;
+    this.renderTagSuggestions(query);
+  }
+
+  renderTagSuggestions(query = "") {
+    const wrap = document.getElementById("qs-tag-autocomplete-wrap");
+    const bar = document.getElementById("qs-tag-recommend-bar");
+    if (!wrap || !bar) return;
+
+    const allTags = this.getAllAvailableTags();
+    const qLower = query.toLowerCase();
+
+    // 쿼리와 일치하는 태그 필터 (빈 쿼리면 상위 인기 태그 추천)
+    let filtered = allTags.filter(t => !qLower || t.toLowerCase().includes(qLower));
+
+    // 이미 추가된 태그는 제외
+    filtered = filtered.filter(t => !this.quickSaveTags.includes(t));
+
+    // 만약 사용자가 완전히 새로운 태그를 치고 있다면, 맨 앞에 입력값 자체를 추천으로 추가
+    if (query && !filtered.includes(query)) {
+      filtered.unshift(query);
+    }
+
+    if (filtered.length === 0) {
+      wrap.style.display = "none";
+      return;
+    }
+
+    wrap.style.display = "block";
+    bar.innerHTML = `
+      <span class="hashtag-bar-label">
+        <i data-lucide="sparkles" style="width:13px;height:13px;"></i>
+        <span>추천</span>
+      </span>
+      ${filtered.slice(0, 10).map(tag => `
+        <button type="button" class="hashtag-chip-btn" onclick="moadumApp.selectTagSuggestion('${tag}')">
+          #${tag}
+        </button>
+      `).join("")}
+    `;
+
+    this.refreshIcons();
+  }
+
+  selectTagSuggestion(tag) {
+    const cleanTag = tag.replace(/^#/, "").trim();
+    if (cleanTag && !this.quickSaveTags.includes(cleanTag)) {
+      this.quickSaveTags.push(cleanTag);
+      this.renderQuickSaveTags();
+    }
+
+    // 입력창 초기화 및 추천 닫기
+    const input = document.getElementById("qs-tag-input");
+    if (input) {
+      input.value = "";
+      input.focus();
+    }
+    const wrap = document.getElementById("qs-tag-autocomplete-wrap");
+    if (wrap) wrap.style.display = "none";
+
+    this.showToast(`'#${cleanTag}' 태그가 추가되었습니다.`);
+  }
+
+  // 태그 입력 핸들러 (Enter 키로 태그 추가)
+  handleTagInput(event) {
+    if (event.key === "Enter" || event.key === ",") {
+      event.preventDefault();
+      const input = document.getElementById("qs-tag-input");
+      const val = input.value.trim().replace(/^#/, "");
+      if (val && !this.quickSaveTags.includes(val)) {
+        this.quickSaveTags.push(val);
+        input.value = "";
+        this.renderQuickSaveTags();
+      }
+      document.getElementById("qs-tag-autocomplete-wrap").style.display = "none";
+    } else if (event.key === "Escape") {
+      document.getElementById("qs-tag-autocomplete-wrap").style.display = "none";
+    }
+  }
+
+  // 메모 본문 입력 중 '#' 입력 감지 및 상단 추천 바 표시
+  handleMemoBodyInput(event) {
+    this.updateMemoCharCount();
+    const textarea = event.target;
+    const text = textarea.value;
+    const cursorPos = textarea.selectionStart;
+
+    // 커서 바로 앞의 텍스트에서 마지막 단어 확인
+    const textBeforeCursor = text.slice(0, cursorPos);
+    const match = /(?:^|\s)#([^\s#]*)$/.exec(textBeforeCursor);
+
+    const barWrap = document.getElementById("memo-hashtag-bar-wrap");
+    const bar = document.getElementById("memo-hashtag-recommend-bar");
+
+    if (match) {
+      const query = match[1] || "";
+      const allTags = this.getAllAvailableTags();
+      const qLower = query.toLowerCase();
+
+      let filtered = allTags.filter(t => !qLower || t.toLowerCase().includes(qLower));
+      if (query && !filtered.includes(query)) {
+        filtered.unshift(query);
+      }
+
+      if (filtered.length > 0) {
+        barWrap.classList.add("active");
+        bar.innerHTML = `
+          <span class="hashtag-bar-label">
+            <i data-lucide="tag" style="width:13px;height:13px;"></i>
+            <span>본문 태그</span>
+          </span>
+          ${filtered.slice(0, 10).map(tag => `
+            <button type="button" class="hashtag-chip-btn" onclick="moadumApp.selectMemoTagSuggestion('${tag}')">
+              #${tag}
+            </button>
+          `).join("")}
+        `;
+        this.refreshIcons();
+        return;
+      }
+    }
+
+    barWrap.classList.remove("active");
+  }
+
+  // 메모 본문에서 추천 태그 클릭 시 본문 자동완성 및 태그 메타데이터 동시 등록
+  selectMemoTagSuggestion(tag) {
+    const cleanTag = tag.replace(/^#/, "").trim();
+    const textarea = document.getElementById("qs-memo-body");
+    if (!textarea) return;
+
+    const text = textarea.value;
+    const cursorPos = textarea.selectionStart;
+    const textBeforeCursor = text.slice(0, cursorPos);
+    const textAfterCursor = text.slice(cursorPos);
+
+    // 커서 앞의 '#단어'를 '#선택한태그 '로 치환
+    const match = /(?:^|\s)#([^\s#]*)$/.exec(textBeforeCursor);
+    if (match) {
+      const replaceStart = textBeforeCursor.lastIndexOf("#" + match[1]);
+      const newBefore = textBeforeCursor.slice(0, replaceStart) + `#${cleanTag} `;
+      textarea.value = newBefore + textAfterCursor;
+      textarea.selectionStart = textarea.selectionEnd = newBefore.length;
+    }
+
+    // 우측 태그 칩에도 자동으로 추가!
+    if (!this.quickSaveTags.includes(cleanTag)) {
+      this.quickSaveTags.push(cleanTag);
+      this.renderQuickSaveTags();
+    }
+
+    document.getElementById("memo-hashtag-bar-wrap").classList.remove("active");
+    textarea.focus();
+    this.updateMemoCharCount();
+    this.showToast(`'#${cleanTag}' 태그가 본문과 태그 목록에 추가되었습니다.`);
+  }
+
+  removeQuickTag(tag) {
+    this.quickSaveTags = this.quickSaveTags.filter((t) => t !== tag);
+    this.renderQuickSaveTags();
+  }
+
+  renderQuickSaveTags() {
+    const container = document.getElementById("qs-tag-container");
+    const input = document.getElementById("qs-tag-input");
+    // 기존 칩들 제거 후 재구성
+    container.querySelectorAll(".tag-entry-chip").forEach((el) => el.remove());
+
+    this.quickSaveTags.forEach((t) => {
+      const chip = document.createElement("span");
+      chip.className = "tag-entry-chip";
+      chip.innerHTML = `#${t} <span class="tag-delete-x" onclick="moadumApp.removeQuickTag('${t}')">×</span>`;
+      container.insertBefore(chip, input);
+    });
+  }
+
+  // 이미지 업로드 핸들러
+  handleImageUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      alert("이미지 파일 크기는 최대 10MB까지 가능합니다.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      this.currentUploadedImageDataUrl = e.target.result;
+      this.showImagePreview(this.currentUploadedImageDataUrl);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  loadSampleOtterMeme() {
+    this.currentUploadedImageDataUrl = "assets/otter_meme.png";
+    this.showImagePreview(this.currentUploadedImageDataUrl);
+    document.getElementById("qs-meta-title").value = "오늘도 할 수 있다 짤";
+    document.getElementById("qs-image-desc").value = "오늘도 할 수 있다...! 취준 파이팅 🙏";
+    this.updateImageDescCharCount();
+
+    // 짤 보관함 & 동기부여 보드로 맞추기
+    document.getElementById("qs-meta-board").value = "memes";
+    this.handleBoardSelectChange();
+    document.getElementById("qs-meta-subcat").value = "동기부여";
+
+    // 태그 추가
+    this.quickSaveTags = ["짤", "동기부여", "취준"];
+    this.renderQuickSaveTags();
+    this.showToast("샘플 수달 짤과 추천 메타데이터가 적용되었습니다!");
+  }
+
+  showImagePreview(src) {
+    document.getElementById("qs-dropzone-prompt").style.display = "none";
+    const previewContainer = document.getElementById("qs-image-preview-container");
+    const previewImg = document.getElementById("qs-image-preview-img");
+    previewImg.src = src;
+    previewContainer.style.display = "block";
+    this.refreshIcons();
+  }
+
+  clearImageUpload() {
+    this.currentUploadedImageDataUrl = null;
+    document.getElementById("qs-image-file-input").value = "";
+    document.getElementById("qs-dropzone-prompt").style.display = "block";
+    document.getElementById("qs-image-preview-container").style.display = "none";
+  }
+
+  updateMemoCharCount() {
+    const len = document.getElementById("qs-memo-body")?.value.length || 0;
+    document.getElementById("qs-memo-counter").textContent = `${len.toLocaleString()} / 2,000`;
+  }
+
+  updateImageDescCharCount() {
+    const len = document.getElementById("qs-image-desc")?.value.length || 0;
+    document.getElementById("qs-image-desc-counter").textContent = `${len} / 500`;
+  }
+
+  // 저장하기 실행 (기능명세서 1.1 반영: 제목 및 유형별 내용 필수 검증, 보드 미지정 시 임시보관함 자동 저장)
+  saveQuickItem(forceInbox = false) {
+    const title = document.getElementById("qs-meta-title")?.value.trim();
+    if (!title) {
+      alert("제목을 입력해주세요.");
+      document.getElementById("qs-meta-title")?.focus();
+      return;
+    }
+
+    const activeTab = document.querySelector(".qs-tab-btn.active")?.id.replace("qs-tab-", "") || "memo";
+    const selectedBoardVal = document.getElementById("qs-meta-board").value;
+    const isInbox = forceInbox || !selectedBoardVal || selectedBoardVal === "inbox";
+    const boardId = isInbox ? null : selectedBoardVal;
+    const subcategory = isInbox ? null : (document.getElementById("qs-meta-subcat").value || null);
+
+    let content = "";
+    let summary = "";
+    let url = "";
+    let image = null;
+
+    if (activeTab === "memo") {
+      content = document.getElementById("qs-memo-body").value.trim();
+      if (!content) {
+        alert("메모 본문 내용을 입력해주세요.");
+        document.getElementById("qs-memo-body")?.focus();
+        return;
+      }
+      summary = content.slice(0, 150);
+    } else if (activeTab === "image") {
+      content = document.getElementById("qs-image-desc").value.trim();
+      image = this.currentUploadedImageDataUrl;
+      if (!image) {
+        alert("이미지 파일을 업로드해주세요. ('샘플 수달 짤 바로 넣기' 버튼으로 테스트 가능합니다)");
+        return;
+      }
+      summary = content.slice(0, 150) || "이미지 자료";
+    } else if (activeTab === "link") {
+      url = document.getElementById("qs-link-url").value.trim();
+      if (!url) {
+        alert("링크 URL을 입력해주세요.");
+        document.getElementById("qs-link-url")?.focus();
+        return;
+      }
+      content = document.getElementById("qs-link-desc").value.trim();
+      summary = content || url;
+    } else if (activeTab === "schedule") {
+      const date = document.getElementById("qs-sch-date").value;
+      const start = document.getElementById("qs-sch-start").value;
+      const end = document.getElementById("qs-sch-end").value;
+      const place = document.getElementById("qs-sch-place").value;
+
+      const newSch = {
+        id: "sch_" + Date.now(),
+        title: title,
+        type: "면접 준비",
+        categoryColor: "purple",
+        date: date,
+        startTime: start,
+        endTime: end,
+        company: place,
+        memo: content,
+        tags: [...this.quickSaveTags],
+        linkedItemIds: []
+      };
+      this.storage.data.schedules.push(newSch);
+    }
+
+    const newItem = {
+      id: "item_" + Date.now(),
+      type: activeTab,
+      boardId: boardId,
+      subcategory: subcategory,
+      title: title,
+      summary: summary,
+      content: content,
+      url: url,
+      image: image,
+      tags: [...this.quickSaveTags],
+      isFavorite: false,
+      createdAt: new Date().toISOString()
+    };
+
+    this.storage.data.items.unshift(newItem);
+    // 용량 증가 시뮬레이션
+    this.storage.data.currentUser.usedStorageMB += 2;
+    this.storage.save();
+
+    this.closeModal("modal-quick-save");
+    this.updateInboxBadge();
+    this.updateStorageWidgets();
+    this.showToast(forceInbox ? "임시 보관함에 저장되었습니다 📥" : "자료가 성공적으로 저장되었습니다 ✨");
+
+    if (this.currentView === "home") this.renderHome();
+    else if (this.currentView === "board") this.renderCurrentBoardCards();
+    else if (this.currentView === "inbox") this.renderInbox();
+  }
+
+  // =========================================================================
+  // 6. 보드·소제목 이동 모달
+  // =========================================================================
+  openMoveBoardModal(itemId) {
+    document.getElementById("move-target-item-id").value = itemId;
+    this.updateMoveSubcategories();
+    this.openModal("modal-move-board");
+  }
+
+  updateMoveSubcategories() {
+    const boardId = document.getElementById("move-select-board").value;
+    const subcatSelect = document.getElementById("move-select-subcat");
+    subcatSelect.innerHTML = "";
+    const board = this.storage.data.boards.find((b) => b.id === boardId);
+    if (board && board.subcategories.length > 0) {
+      board.subcategories.forEach((sub) => {
+        subcatSelect.innerHTML += `<option value="${sub}">${sub}</option>`;
+      });
+    }
+  }
+
+  confirmMoveItem() {
+    const itemId = document.getElementById("move-target-item-id").value;
+    const boardId = document.getElementById("move-select-board").value;
+    const subcategory = document.getElementById("move-select-subcat").value;
+
+    const item = this.storage.data.items.find((i) => i.id === itemId);
+    if (!item) return;
+
+    item.boardId = boardId;
+    item.subcategory = subcategory;
+    this.storage.save();
+
+    const board = this.storage.data.boards.find((b) => b.id === boardId);
+    this.closeModal("modal-move-board");
+    this.updateInboxBadge();
+    this.showToast(`'${board ? board.name : "선택한 보드"}'(으)로 이동되었습니다.`);
+
+    if (this.currentView === "inbox") this.renderInbox();
+    else if (this.currentView === "board") this.renderCurrentBoardCards();
+    else if (this.currentView === "home") this.renderHome();
+  }
+
+  // =========================================================================
+  // 7. 자료 상세 보기 및 수정·삭제 기능 (기능명세서 3.3, 4.3 반영)
+  // =========================================================================
+  openItemDetail(itemId) {
+    const item = this.storage.data.items.find((i) => i.id === itemId);
+    if (!item) return;
+
+    const board = this.storage.data.boards.find(b => b.id === item.boardId);
+    const boardName = board ? board.name : "임시 보관함";
+    const subcatName = item.subcategory || "미분류";
+
+    document.getElementById("detail-type-badge").textContent = item.type === "image" ? "이미지" : item.type === "link" ? "링크" : "메모";
+    document.getElementById("detail-date-text").textContent = item.createdAt.slice(0, 10);
+
+    const body = document.getElementById("item-detail-modal-body");
+    const footer = document.getElementById("item-detail-modal-footer");
+
+    body.innerHTML = `
+      <div style="margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span class="tag-badge" style="background:#E2E8F0;color:#334155;font-weight:700;">📂 ${boardName} > ${subcatName}</span>
+        </div>
+        <h2 style="font-size:20px;font-weight:800;color:var(--text-title);margin-bottom:8px;" id="detail-view-title">${item.title}</h2>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+          ${(item.tags || []).map((t) => `<span class="tag-badge">#${t}</span>`).join("")}
+        </div>
+      </div>
+
+      ${item.image ? `
+        <div class="meme-modal-viewer">
+          <img src="${item.image}" class="meme-modal-img" alt="${item.title}">
+          <div style="margin-top:10px;display:flex;gap:8px;">
+            <a href="${item.image}" download="${item.title}.jpg" class="btn-secondary" style="font-size:11px;padding:5px 12px;background:rgba(255,255,255,0.15);color:#FFF;border:1px solid rgba(255,255,255,0.25);">
+              <i data-lucide="download" style="width:13px;height:13px;"></i>
+              <span>짤 다운로드</span>
+            </a>
+          </div>
+        </div>
+      ` : ""}
+
+      ${item.url ? `
+        <div style="background:var(--primary-light);border:1px solid var(--primary-border);border-radius:8px;padding:12px 14px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
+          <a href="${item.url}" target="_blank" style="color:var(--primary);font-size:13px;word-break:break-all;text-decoration:underline;">${item.url}</a>
+          <a href="${item.url}" target="_blank" class="btn-primary" style="font-size:11px;padding:5px 10px;white-space:nowrap;">새 창 열기</a>
+        </div>
+      ` : ""}
+
+      <div style="font-size:14px;line-height:1.7;color:var(--text-body);white-space:pre-wrap;background:var(--bg-app);padding:16px;border-radius:10px;border:1px solid var(--border-light);">
+        ${item.content || item.summary || "등록된 본문 내용이 없습니다."}
+      </div>
+    `;
+
+    footer.innerHTML = `
+      <button class="btn-secondary" style="color:var(--accent-red-text);margin-right:auto;" onclick="moadumApp.deleteItem('${item.id}')">
+        <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
+        <span>삭제</span>
+      </button>
+      <button class="btn-secondary" onclick="moadumApp.enableItemEdit('${item.id}')">
+        <i data-lucide="edit-3" style="width:14px;height:14px;"></i>
+        <span>수정하기</span>
+      </button>
+      <button class="btn-primary" onclick="moadumApp.closeModal('modal-item-detail')">닫기</button>
+    `;
+
+    this.openModal("modal-item-detail");
+    this.refreshIcons();
+  }
+
+  // 자료 상세 인라인 편집 폼 전환 (기능명세서 3.3, 4.3 요구사항)
+  enableItemEdit(itemId) {
+    const item = this.storage.data.items.find((i) => i.id === itemId);
+    if (!item) return;
+
+    const body = document.getElementById("item-detail-modal-body");
+    const footer = document.getElementById("item-detail-modal-footer");
+
+    const boardOptions = this.storage.data.boards.map(b => `
+      <option value="${b.id}" ${item.boardId === b.id ? "selected" : ""}>${b.name}</option>
+    `).join("");
+
+    body.innerHTML = `
+      <div class="form-group">
+        <label class="form-label">제목 *</label>
+        <input type="text" id="edit-item-title" class="form-input" value="${item.title.replace(/"/g, '&quot;')}">
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+        <div class="form-group">
+          <label class="form-label">보드 선택</label>
+          <select id="edit-item-board" class="form-select" onchange="moadumApp.updateEditSubcategories()">
+            <option value="inbox" ${!item.boardId ? "selected" : ""}>임시 보관함 (미분류)</option>
+            ${boardOptions}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">소제목 (세부 분류)</label>
+          <select id="edit-item-subcat" class="form-select">
+            <!-- 동적 렌더링 -->
+          </select>
+        </div>
+      </div>
+
+      ${item.url ? `
+        <div class="form-group">
+          <label class="form-label">링크 URL</label>
+          <input type="url" id="edit-item-url" class="form-input" value="${item.url || ''}">
+        </div>
+      ` : ""}
+
+      <div class="form-group">
+        <label class="form-label">본문 내용 / 설명</label>
+        <textarea id="edit-item-content" class="form-textarea" style="min-height:160px;">${item.content || item.summary || ''}</textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">태그 (쉼표로 구분)</label>
+        <input type="text" id="edit-item-tags" class="form-input" value="${(item.tags || []).join(', ')}">
+      </div>
+    `;
+
+    footer.innerHTML = `
+      <button class="btn-secondary" onclick="moadumApp.openItemDetail('${item.id}')">수정 취소</button>
+      <button class="btn-primary" onclick="moadumApp.saveItemEdit('${item.id}')">
+        <i data-lucide="check" style="width:14px;height:14px;"></i>
+        <span>수정 완료</span>
+      </button>
+    `;
+
+    this.updateEditSubcategories(item.subcategory);
+    this.refreshIcons();
+  }
+
+  updateEditSubcategories(currentSubcat = null) {
+    const boardId = document.getElementById("edit-item-board")?.value;
+    const subcatSelect = document.getElementById("edit-item-subcat");
+    if (!subcatSelect) return;
+    subcatSelect.innerHTML = `<option value="">미분류</option>`;
+
+    if (boardId && boardId !== "inbox") {
+      const board = this.storage.data.boards.find(b => b.id === boardId);
+      if (board && board.subcategories) {
+        board.subcategories.forEach(sub => {
+          subcatSelect.innerHTML += `<option value="${sub}" ${currentSubcat === sub ? "selected" : ""}>${sub}</option>`;
+        });
+      }
+    }
+  }
+
+  // 자료 편집 저장
+  saveItemEdit(itemId) {
+    const item = this.storage.data.items.find((i) => i.id === itemId);
+    if (!item) return;
+
+    const newTitle = document.getElementById("edit-item-title")?.value.trim();
+    if (!newTitle) {
+      alert("제목을 입력해주세요.");
+      return;
+    }
+
+    const newBoard = document.getElementById("edit-item-board")?.value;
+    const newSubcat = document.getElementById("edit-item-subcat")?.value;
+    const newContent = document.getElementById("edit-item-content")?.value;
+    const newTagsStr = document.getElementById("edit-item-tags")?.value;
+
+    item.title = newTitle;
+    item.boardId = newBoard === "inbox" ? null : newBoard;
+    item.subcategory = newSubcat || null;
+    item.content = newContent;
+    item.summary = newContent.slice(0, 150);
+
+    const urlInput = document.getElementById("edit-item-url");
+    if (urlInput) item.url = urlInput.value.trim();
+
+    item.tags = newTagsStr
+      ? newTagsStr.split(",").map(t => t.trim().replace(/^#/, "")).filter(Boolean)
+      : [];
+
+    this.storage.save();
+    this.showToast("자료가 성공적으로 수정되었습니다! ✍️");
+    this.openItemDetail(itemId);
+
+    if (this.currentView === "home") this.renderHome();
+    else if (this.currentView === "board") this.renderCurrentBoardCards();
+    else if (this.currentView === "inbox") this.renderInbox();
+  }
+
+  deleteItem(itemId) {
+    if (!confirm("정말 이 자료를 삭제하시겠습니까?")) return;
+    this.storage.data.items = this.storage.data.items.filter((i) => i.id !== itemId);
+    this.storage.save();
+    this.closeModal("modal-item-detail");
+    this.showToast("자료가 삭제되었습니다.");
+
+    if (this.currentView === "home") this.renderHome();
+    else if (this.currentView === "board") this.renderCurrentBoardCards();
+    else if (this.currentView === "inbox") this.renderInbox();
+  }
+
+  // =========================================================================
+  // 8. 일정 추가 모달
+  // =========================================================================
+  openAddScheduleModal() {
+    document.getElementById("add-sch-title").value = "";
+    document.getElementById("add-sch-company").value = "";
+    document.getElementById("add-sch-memo").value = "";
+    const todayStr = this.formatLocalDate(new Date());
+    const dateInput = document.getElementById("add-sch-date");
+    if (dateInput) {
+      dateInput.value = this.selectedScheduleDate || todayStr;
+    }
+    this.openModal("modal-add-schedule");
+  }
+
+  saveSchedule() {
+    const title = document.getElementById("add-sch-title").value.trim();
+    if (!title) {
+      alert("일정 제목을 입력해주세요.");
+      return;
+    }
+    const type = document.getElementById("add-sch-type").value;
+    const date = document.getElementById("add-sch-date").value || this.formatLocalDate(new Date());
+    const startTime = document.getElementById("add-sch-start").value || "10:00";
+    const endTime = document.getElementById("add-sch-end").value || "11:00";
+    const company = document.getElementById("add-sch-company").value;
+    const memo = document.getElementById("add-sch-memo").value;
+
+    let categoryColor = "purple";
+    if (type.includes("마감")) categoryColor = "red";
+    else if (type.includes("블로그") || type.includes("초안")) categoryColor = "green";
+
+    const newSch = {
+      id: "sch_" + Date.now(),
+      title: title,
+      type: type,
+      categoryColor: categoryColor,
+      date: date,
+      startTime: startTime,
+      endTime: endTime,
+      company: company,
+      memo: memo,
+      tags: [type],
+      linkedItemIds: []
+    };
+
+    this.storage.data.schedules.push(newSch);
+    this.storage.save();
+
+    this.closeModal("modal-add-schedule");
+    this.showToast("새 일정이 등록되었습니다 📅");
+    this.selectedScheduleId = newSch.id;
+    this.selectedScheduleDate = date;
+    this.calendarCurrentDate = new Date(date + "T00:00:00");
+    this.renderSchedule();
+    if (this.currentView === "home") this.renderHome();
+  }
+
+  // =========================================================================
+  // 9. 일정에 자료 연결 모달
+  // =========================================================================
+  openLinkItemsModal(scheduleId) {
+    this.activeScheduleIdForLinking = scheduleId;
+    this.renderLinkableItemsList();
+    this.openModal("modal-link-items");
+  }
+
+  renderLinkableItemsList() {
+    const sch = this.storage.data.schedules.find((s) => s.id === this.activeScheduleIdForLinking);
+    if (!sch) return;
+    const searchVal = document.getElementById("link-items-search-input")?.value.trim().toLowerCase() || "";
+    const linkedIds = sch.linkedItemIds || [];
+
+    let items = this.storage.data.items;
+    if (searchVal) {
+      items = items.filter(
+        (i) =>
+          i.title.toLowerCase().includes(searchVal) ||
+          (i.tags && i.tags.some((t) => t.toLowerCase().includes(searchVal)))
+      );
+    }
+
+    const listEl = document.getElementById("linkable-items-list");
+    listEl.innerHTML = items
+      .map((item) => {
+        const isChecked = linkedIds.includes(item.id);
+        return `
+        <label class="linked-item-pill" style="cursor:pointer;">
+          <div class="linked-item-left">
+            <input type="checkbox" class="link-item-checkbox" value="${item.id}" ${isChecked ? "checked" : ""} style="accent-color:var(--primary);width:16px;height:16px;">
+            <div>
+              <div class="linked-item-title">${item.title}</div>
+              <div class="linked-item-sub">${item.type === "memo" ? "메모" : item.type === "link" ? "링크" : "이미지"} · ${(item.tags || []).join(", ")}</div>
+            </div>
+          </div>
+        </label>
+      `;
+      })
+      .join("");
+  }
+
+  confirmLinkItems() {
+    const sch = this.storage.data.schedules.find((s) => s.id === this.activeScheduleIdForLinking);
+    if (!sch) return;
+
+    const checkboxes = document.querySelectorAll(".link-item-checkbox:checked");
+    sch.linkedItemIds = Array.from(checkboxes).map((cb) => cb.value);
+    this.storage.save();
+
+    this.closeModal("modal-link-items");
+    this.showToast("자료가 일정에 연결되었습니다 🔗");
+    this.renderScheduleSideDetail();
+  }
+
+  // =========================================================================
+  // 10. 통합 검색 & 고급 검색
+  // =========================================================================
+  handleGlobalSearch() {
+    const keyword = document.getElementById("global-search-input").value.trim();
+    if (!keyword) return;
+
+    this.navigate("search");
+    document.getElementById("search-keyword-display").textContent = `'${keyword}'`;
+
+    const results = this.storage.data.items.filter((item) => {
+      const kw = keyword.toLowerCase();
+      return (
+        item.title.toLowerCase().includes(kw) ||
+        (item.summary && item.summary.toLowerCase().includes(kw)) ||
+        (item.content && item.content.toLowerCase().includes(kw)) ||
+        (item.tags && item.tags.some((t) => t.toLowerCase().includes(kw)))
+      );
+    });
+
+    document.getElementById("search-count-display").textContent = results.length;
+    const grid = document.getElementById("search-cards-grid");
+
+    if (results.length === 0) {
+      grid.innerHTML = `
+        <div style="grid-column: 1 / -1; text-align:center; padding: 60px 20px;">
+          <div style="font-size: 36px; margin-bottom: 12px;">🔍</div>
+          <h3 style="font-size: 16px; font-weight: 700; color: var(--text-title); margin-bottom: 4px;">일치하는 검색 결과가 없습니다</h3>
+          <p style="font-size: 13px; color: var(--text-muted);">다른 검색어나 태그로 다시 검색해보세요.</p>
+        </div>
+      `;
+    } else {
+      grid.innerHTML = results.map((item) => this.generateCardHTML(item)).join("");
+    }
+    this.refreshIcons();
+  }
+
+  executeAdvancedSearch() {
+    const kw = document.getElementById("adv-search-keyword").value.trim().toLowerCase();
+    const favOnly = document.getElementById("adv-fav-only").checked;
+
+    const allowedBoards = [];
+    if (document.getElementById("adv-board-job").checked) allowedBoards.push("job");
+    if (document.getElementById("adv-board-blog").checked) allowedBoards.push("blog");
+    if (document.getElementById("adv-board-posts").checked) allowedBoards.push("posts");
+    if (document.getElementById("adv-board-memes").checked) allowedBoards.push("memes");
+
+    const allowedTypes = [];
+    if (document.getElementById("adv-type-memo").checked) allowedTypes.push("memo");
+    if (document.getElementById("adv-type-image").checked) allowedTypes.push("image");
+    if (document.getElementById("adv-type-link").checked) allowedTypes.push("link");
+
+    const results = this.storage.data.items.filter((item) => {
+      if (favOnly && !item.isFavorite) return false;
+      if (item.boardId && !allowedBoards.includes(item.boardId)) return false;
+      if (!allowedTypes.includes(item.type)) return false;
+      if (kw) {
+        return (
+          item.title.toLowerCase().includes(kw) ||
+          (item.content && item.content.toLowerCase().includes(kw)) ||
+          (item.tags && item.tags.some((t) => t.toLowerCase().includes(kw)))
+        );
+      }
+      return true;
+    });
+
+    this.closeModal("modal-advanced-search");
+    this.navigate("search");
+    document.getElementById("search-keyword-display").textContent = kw ? `'${kw}' (고급 조건)` : `고급 필터`;
+    document.getElementById("search-count-display").textContent = results.length;
+
+    const grid = document.getElementById("search-cards-grid");
+    grid.innerHTML = results.map((item) => this.generateCardHTML(item)).join("");
+    this.refreshIcons();
+  }
+
+  // =========================================================================
+  // 11. 알림 시스템
+  // =========================================================================
+  renderNotifications() {
+    const list = document.getElementById("notif-dropdown-list");
+    const notifications = this.storage.data.notifications;
+
+    const unreadCount = notifications.filter((n) => !n.isRead).length;
+    const dot = document.getElementById("notif-dot");
+    if (dot) dot.style.display = unreadCount > 0 ? "block" : "none";
+
+    list.innerHTML = notifications
+      .map(
+        (n) => `
+      <div class="notif-row-item ${n.isRead ? "" : "unread"}" onclick="moadumApp.handleNotificationClick('${n.id}')">
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:700;color:var(--text-title);display:flex;align-items:center;gap:6px;">
+            <span>${n.title}</span>
+            ${n.dday ? `<span class="dday-badge" style="font-size:10px;padding:1px 5px;">${n.dday}</span>` : ""}
+          </div>
+          <div style="font-size:11.5px;color:var(--text-sub);margin-top:2px;">${n.subtitle}</div>
+        </div>
+      </div>
+    `
+      )
+      .join("");
+  }
+
+  handleNotificationClick(notifId) {
+    const notif = this.storage.data.notifications.find((n) => n.id === notifId);
+    if (!notif) return;
+    notif.isRead = true;
+    this.storage.save();
+    this.renderNotifications();
+    this.closeAllDropdowns();
+
+    if (notif.scheduleId) {
+      this.selectedScheduleId = notif.scheduleId;
+      const sch = this.storage.data.schedules.find((s) => s.id === notif.scheduleId);
+      if (sch) this.selectedScheduleDate = sch.date;
+      this.navigate("schedule");
+    } else if (notif.route) {
+      this.navigate(notif.route);
+    }
+  }
+
+  markAllNotificationsRead() {
+    this.storage.data.notifications.forEach((n) => (n.isRead = true));
+    this.storage.save();
+    this.renderNotifications();
+    this.showToast("모든 알림을 읽음 처리했습니다.");
+  }
+
+  // =========================================================================
+  // 12. 프로필 & 환경 설정
+  // =========================================================================
+  loadSettingsView() {
+    const user = this.storage.data.currentUser;
+    document.getElementById("settings-name-input").value = user.name;
+    document.getElementById("settings-email-input").value = user.email;
+    document.getElementById("settings-bio-input").value = user.bio;
+    document.getElementById("settings-notif-web").checked = user.webNotifications;
+    document.getElementById("settings-notif-email").checked = user.emailNotifications;
+    if (user.avatar) {
+      document.getElementById("settings-avatar-preview").src = user.avatar;
+    }
+  }
+
+  saveProfileSettings() {
+    const user = this.storage.data.currentUser;
+    user.name = document.getElementById("settings-name-input").value.trim();
+    user.email = document.getElementById("settings-email-input").value.trim();
+    user.bio = document.getElementById("settings-bio-input").value.trim();
+    user.webNotifications = document.getElementById("settings-notif-web").checked;
+    user.emailNotifications = document.getElementById("settings-notif-email").checked;
+
+    this.storage.save();
+    this.updateUserHeader();
+    this.showToast("프로필 설정이 저장되었습니다.");
+  }
+
+  handleAvatarChange(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      this.storage.data.currentUser.avatar = e.target.result;
+      this.storage.save();
+      this.updateUserHeader();
+      document.getElementById("settings-avatar-preview").src = e.target.result;
+      this.showToast("프로필 사진이 변경되었습니다.");
+    };
+    reader.readAsDataURL(file);
+  }
+
+  setTheme(theme) {
+    this.applyTheme(theme);
+    this.storage.data.currentUser.theme = theme;
+    this.storage.save();
+    this.showToast(`${theme === "dark" ? "다크" : "라이트"} 모드로 전환되었습니다.`);
+  }
+
+  applyTheme(theme) {
+    if (theme === "dark") {
+      document.body.classList.add("dark");
+    } else {
+      document.body.classList.remove("dark");
+    }
+  }
+
+  // =========================================================================
+  // 13. 요금제 업그레이드 & 데이터 백업/복원
+  // =========================================================================
+  updatePricingView() {
+    const user = this.storage.data.currentUser;
+    const planBadge = document.getElementById("pricing-plan-badge");
+    const storageDetail = document.getElementById("pricing-storage-detail");
+    const bar = document.getElementById("pricing-storage-bar");
+    const warn = document.getElementById("pricing-warning-text");
+    const actionBtn = document.getElementById("btn-upgrade-action");
+
+    if (user.plan === "pro") {
+      planBadge.textContent = "프로 플랜 (Pro)";
+      storageDetail.textContent = `${user.usedStorageMB}MB / 50GB (1% 사용)`;
+      bar.style.width = "1%";
+      bar.classList.remove("warning");
+      warn.innerHTML = "✨ 프로 플랜의 무제한 혜택을 마음껏 이용하고 계십니다.";
+      warn.style.color = "var(--accent-green-text)";
+      actionBtn.innerHTML = "<span>현재 이용 중인 플랜</span>";
+      actionBtn.disabled = true;
+    } else {
+      planBadge.textContent = "무료 플랜";
+      storageDetail.textContent = `${user.usedStorageMB}MB / 500MB (97% 사용)`;
+      bar.style.width = "97%";
+      bar.classList.add("warning");
+      warn.innerHTML = "⚠️ 저장 공간이 거의 찼습니다. 유료 플랜으로 업그레이드하고 50GB를 사용해보세요!";
+      warn.style.color = "var(--accent-red-text)";
+      actionBtn.innerHTML = "<span>프로 플랜으로 업그레이드</span>";
+      actionBtn.disabled = false;
+    }
+  }
+
+  handleUpgradePro() {
+    if (confirm("월 ₩4,900 프로 플랜으로 업그레이드하시겠습니까?\n(체험 모의 결제: 50GB 저장 공간 및 유료 기능 즉시 활성화)")) {
+      this.storage.data.currentUser.plan = "pro";
+      this.storage.data.currentUser.totalStorageMB = 50 * 1024; // 50GB
+      this.storage.save();
+      this.updatePricingView();
+      this.updateStorageWidgets();
+      this.updateUserHeader();
+      this.showToast("축하합니다! 프로 플랜으로 업그레이드되었습니다 🚀");
+    }
+  }
+
+  exportBackup() {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(this.storage.data, null, 2));
+    const downloadAnchor = document.createElement("a");
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `moadum_backup_${dateStr}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+    this.showToast("자료 전체 백업 JSON 파일이 다운로드되었습니다 💾");
+  }
+
+  importBackup(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const importedData = JSON.parse(e.target.result);
+        if (importedData && importedData.items && importedData.schedules) {
+          this.storage.save(importedData);
+          alert("백업 파일이 성공적으로 복원되었습니다. 화면을 새로고침합니다.");
+          location.reload();
+        } else {
+          alert("올바르지 않은 모아둠 백업 파일 형식입니다.");
+        }
+      } catch (err) {
+        alert("JSON 파일을 파싱하는 중 오류가 발생했습니다.");
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  resetDatabase() {
+    if (confirm("정말 모든 데이터를 초기 샘플 데이터로 리셋하시겠습니까?")) {
+      this.storage.reset();
+      this.showToast("초기 샘플 데이터로 복원되었습니다.");
+      this.init();
+    }
+  }
+
+  loginDemo() {
+    this.storage.data.currentUser.isLoggedIn = true;
+    this.storage.save();
+    this.showToast("소윤님 계정으로 로그인되었습니다! 환영합니다 💜");
+    this.navigate("home");
+  }
+
+  logout() {
+    if (confirm("로그아웃 하시겠습니까?")) {
+      this.showToast("로그아웃 되었습니다.");
+      this.navigate("login");
+    }
+  }
+
+  // =========================================================================
+  // 유틸리티
+  // =========================================================================
+  toggleDropdown(dropdownId) {
+    const el = document.getElementById(dropdownId);
+    if (!el) return;
+    const isActive = el.classList.contains("active");
+    this.closeAllDropdowns();
+    if (!isActive) el.classList.add("active");
+  }
+
+  closeAllDropdowns() {
+    document.querySelectorAll(".header-dropdown-menu").forEach((el) => el.classList.remove("active"));
+  }
+
+  openModal(modalId) {
+    document.getElementById(modalId)?.classList.add("active");
+  }
+
+  closeModal(modalId) {
+    document.getElementById(modalId)?.classList.remove("active");
+  }
+}
+
+// 앱 인스턴스 생성 및 시작
+window.moadumApp = new MoadumApp();
+window.addEventListener("DOMContentLoaded", () => {
+  window.moadumApp.init();
+});

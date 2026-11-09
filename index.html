@@ -454,7 +454,7 @@
                   <button class="cal-today-btn" onclick="moadumApp.setCalendarToday()">오늘</button>
                   <button class="cal-arrow-btn" onclick="moadumApp.prevCalendarPeriod()" title="이전"><i data-lucide="chevron-left" style="width:16px;height:16px;"></i></button>
                   <button class="cal-arrow-btn" onclick="moadumApp.nextCalendarPeriod()" title="다음"><i data-lucide="chevron-right" style="width:16px;height:16px;"></i></button>
-                  <span class="cal-period-title" id="cal-period-title">2024년 10월</span>
+                  <span class="cal-period-title" id="cal-period-title"></span>
                 </div>
 
                 <!-- 뷰 전환 토글 (주 | 월 | 리스트) -->
@@ -857,7 +857,7 @@
             <div id="qs-content-schedule" class="qs-type-content" style="display:none;">
               <div class="form-group">
                 <label class="form-label">일정 날짜 <span class="required">*</span></label>
-                <input type="date" id="qs-sch-date" class="form-input" value="2024-11-03">
+                <input type="date" id="qs-sch-date" class="form-input">
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                 <div class="form-group">
@@ -972,7 +972,7 @@
       <div class="modal-header">
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="tag-badge" id="detail-type-badge">메모</span>
-          <span style="font-size:12px;color:var(--text-muted);" id="detail-date-text">2024.10.28</span>
+          <span style="font-size:12px;color:var(--text-muted);" id="detail-date-text"></span>
         </div>
         <button class="modal-close-btn" onclick="moadumApp.closeModal('modal-item-detail')">
           <i data-lucide="x" style="width:18px;height:18px;"></i>
@@ -1012,7 +1012,7 @@
         </div>
         <div class="form-group">
           <label class="form-label">날짜 <span class="required">*</span></label>
-          <input type="date" id="add-sch-date" class="form-input" value="2024-11-03">
+          <input type="date" id="add-sch-date" class="form-input">
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="form-group">
@@ -1036,6 +1036,33 @@
       <div class="modal-footer">
         <button class="btn-secondary" onclick="moadumApp.closeModal('modal-add-schedule')">취소</button>
         <button class="btn-primary" onclick="moadumApp.saveSchedule()">일정 등록</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4.4.1 일정 상세 모달 -->
+  <div class="modal-overlay" id="modal-schedule-detail">
+    <div class="modal-container" style="max-width: 560px;">
+      <div class="modal-header">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="tag-badge" id="sch-detail-badge" style="background-color:var(--primary-light);color:var(--primary-text);font-weight:700;">일정</span>
+          <span class="dday-badge" id="sch-detail-dday" style="background-color:var(--primary);">D-Day</span>
+        </div>
+        <button class="modal-close-btn" onclick="moadumApp.closeModal('modal-schedule-detail')">
+          <i data-lucide="x" style="width:18px;height:18px;"></i>
+        </button>
+      </div>
+      <div class="modal-body" id="sch-detail-modal-body">
+        <!-- 동적 렌더링 -->
+      </div>
+      <div class="modal-footer" id="sch-detail-modal-footer" style="display:flex;justify-content:space-between;align-items:center;">
+        <button class="btn-secondary" id="sch-detail-btn-delete" style="color:#ef4444;border-color:rgba(239,68,68,0.3);display:inline-flex;align-items:center;gap:6px;">
+          <i data-lucide="trash-2" style="width:15px;height:15px;"></i>
+          <span>일정 삭제</span>
+        </button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-primary" onclick="moadumApp.closeModal('modal-schedule-detail')">확인</button>
+        </div>
       </div>
     </div>
   </div>
