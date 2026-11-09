@@ -7,14 +7,14 @@ class MoadumApp {
     this.currentBoardId = "job";
     this.currentSubcategory = "전체";
     this.currentTagFilter = "전체";
-    this.selectedScheduleId = "sch_3"; // 기본 선택: 11월 3일 현대카드 지원 마감
-    this.selectedScheduleDate = "2024-11-03";
+    this.selectedScheduleId = "";
+    this.selectedScheduleDate = new Date().toISOString().slice(0, 10);
     this.calendarViewMode = "week"; // 'week' | 'month' | 'list'
     this.quickSaveTags = [];
     this.currentUploadedImageDataUrl = null;
 
-    // 날짜 기준: 2024년 10월 말 ~ 11월 초 주간 (최종 시안 캘린더 기준)
-    this.calendarCurrentDate = new Date("2024-10-31T10:00:00");
+    // 캘린더는 현재 날짜를 기준으로 표시
+    this.calendarCurrentDate = new Date();
   }
 
   init() {
@@ -611,7 +611,9 @@ class MoadumApp {
   }
 
   setCalendarToday() {
-    this.calendarCurrentDate = new Date("2024-10-31T10:00:00");
+    this.calendarCurrentDate = new Date();
+    this.selectedScheduleDate = this.calendarCurrentDate.toISOString().slice(0, 10);
+    this.selectedScheduleId = "";
     this.renderSchedule();
   }
 
@@ -726,7 +728,10 @@ class MoadumApp {
 
   selectDate(dateStr) {
     this.selectedScheduleDate = dateStr;
+    const schedule = this.storage.data.schedules.find((s) => s.date === dateStr);
+    this.selectedScheduleId = schedule ? schedule.id : "";
     this.renderScheduleSideDetail();
+    if (this.calendarViewMode === "month") this.renderMonthView();
   }
 
   // 월간 달력 렌더링
@@ -737,7 +742,9 @@ class MoadumApp {
     let cellsHTML = "";
     for (let day = 1; day <= 31; day++) {
       const dayStr = day < 10 ? `0${day}` : `${day}`;
-      const fullDate = `2024-10-${dayStr}`;
+      const year = this.calendarCurrentDate.getFullYear();
+      const month = String(this.calendarCurrentDate.getMonth() + 1).padStart(2, "0");
+      const fullDate = `${year}-${month}-${dayStr}`;
       const daySchedules = schedules.filter((s) => s.date === fullDate);
 
       cellsHTML += `
@@ -786,10 +793,13 @@ class MoadumApp {
   // 일정 우측 상세 패널 (최종 시안 100% 동일)
   renderScheduleSideDetail() {
     const sidePanel = document.getElementById("schedule-side-panel");
-    const schedule = this.storage.data.schedules.find((s) => s.id === this.selectedScheduleId) || this.storage.data.schedules[0];
+    const schedule = this.storage.data.schedules.find((s) => s.id === this.selectedScheduleId && s.date === this.selectedScheduleDate);
 
     if (!schedule) {
-      sidePanel.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-muted);">선택된 일정이 없습니다.</div>`;
+      const dateObj = new Date(`${this.selectedScheduleDate}T00:00:00`);
+      const dayNames = ["일", "월", "화", "수", "목", "금", "토"];
+      const dateTitle = `${dateObj.getMonth() + 1}월 ${dateObj.getDate()}일 (${dayNames[dateObj.getDay()]})`;
+      sidePanel.innerHTML = `<div class="side-panel-date-title">${dateTitle}</div><div style="text-align:center;padding:40px;color:var(--text-muted);">이 날짜에 등록된 일정이 없습니다.</div>`;
       return;
     }
 
@@ -812,7 +822,7 @@ class MoadumApp {
             <i data-lucide="alert-circle" style="width:16px;height:16px;"></i>
             <span>${schedule.title}</span>
           </div>
-          <span class="dday-badge" style="background-color: ${schedule.categoryColor === "red" ? "var(--accent-red-text)" : "var(--primary)"};">D-3</span>
+          <button class="btn-secondary" style="margin-left:auto;padding:5px 9px;color:var(--accent-red-text);" onclick="moadumApp.deleteSchedule('${schedule.id}')">삭제</button>
         </div>
 
         <div class="side-hero-meta">
@@ -1588,6 +1598,20 @@ class MoadumApp {
   }
 
   // =========================================================================
+
+  deleteSchedule(scheduleId) {
+    const schedule = this.storage.data.schedules.find((s) => s.id === scheduleId);
+    if (!schedule) return;
+    if (!confirm(`'${schedule.title}' 일정을 삭제할까요?`)) return;
+    this.storage.data.schedules = this.storage.data.schedules.filter((s) => s.id !== scheduleId);
+    this.storage.data.notifications = (this.storage.data.notifications || []).filter((n) => n.scheduleId !== scheduleId);
+    this.selectedScheduleId = "";
+    this.storage.save();
+    this.showToast("일정이 삭제되었습니다.");
+    this.renderSchedule();
+    this.renderNotifications();
+  }
+
   // 9. 일정에 자료 연결 모달
   // =========================================================================
   openLinkItemsModal(scheduleId) {
