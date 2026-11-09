@@ -7,6 +7,7 @@ class MoadumApp {
     this.currentBoardId = "job";
     this.currentSubcategory = "전체";
     this.currentTagFilter = "전체";
+    this.editingScheduleId = null;
     this.selectedScheduleId = "";
     this.selectedScheduleDate = new Date().toISOString().slice(0, 10);
     this.calendarViewMode = "week"; // 'week' | 'month' | 'list'
@@ -822,7 +823,10 @@ class MoadumApp {
             <i data-lucide="alert-circle" style="width:16px;height:16px;"></i>
             <span>${schedule.title}</span>
           </div>
-          <button class="btn-secondary" style="margin-left:auto;padding:5px 9px;color:var(--accent-red-text);" onclick="moadumApp.deleteSchedule('${schedule.id}')">삭제</button>
+          <div style="margin-left:auto;display:flex;flex-direction:column;gap:6px;align-items:stretch;">
+            <button class="btn-secondary" style="padding:5px 9px;color:var(--accent-red-text);" onclick="moadumApp.deleteSchedule('${schedule.id}')">삭제</button>
+            <button class="btn-secondary" style="padding:5px 9px;" onclick="moadumApp.openEditScheduleModal('${schedule.id}')">수정</button>
+          </div>
         </div>
 
         <div class="side-hero-meta">
@@ -1550,9 +1554,30 @@ class MoadumApp {
   // 8. 일정 추가 모달
   // =========================================================================
   openAddScheduleModal() {
+    this.editingScheduleId = null;
+    const modal = document.getElementById("modal-add-schedule");
+    modal.querySelector(".modal-title").textContent = "새 일정 등록";
+    modal.querySelector(".modal-footer .btn-primary").textContent = "일정 등록";
     document.getElementById("add-sch-title").value = "";
     document.getElementById("add-sch-company").value = "";
     document.getElementById("add-sch-memo").value = "";
+    this.openModal("modal-add-schedule");
+  }
+
+  openEditScheduleModal(scheduleId) {
+    const schedule = this.storage.data.schedules.find((s) => s.id === scheduleId);
+    if (!schedule) return;
+    this.editingScheduleId = scheduleId;
+    document.getElementById("add-sch-title").value = schedule.title || "";
+    document.getElementById("add-sch-type").value = schedule.type || "스터디/기타";
+    document.getElementById("add-sch-date").value = schedule.date || "";
+    document.getElementById("add-sch-start").value = schedule.startTime || "10:00";
+    document.getElementById("add-sch-end").value = schedule.endTime || "11:00";
+    document.getElementById("add-sch-company").value = schedule.company || "";
+    document.getElementById("add-sch-memo").value = schedule.memo || "";
+    const modal = document.getElementById("modal-add-schedule");
+    modal.querySelector(".modal-title").textContent = "일정 수정";
+    modal.querySelector(".modal-footer .btn-primary").textContent = "수정 완료";
     this.openModal("modal-add-schedule");
   }
 
@@ -1587,12 +1612,25 @@ class MoadumApp {
       linkedItemIds: []
     };
 
-    this.storage.data.schedules.push(newSch);
+    const editing = this.editingScheduleId
+      ? this.storage.data.schedules.find((s) => s.id === this.editingScheduleId)
+      : null;
+    if (editing) {
+      Object.assign(editing, newSch, {
+        id: editing.id,
+        linkedItemIds: editing.linkedItemIds || [],
+        tags: newSch.tags
+      });
+    } else {
+      this.storage.data.schedules.push(newSch);
+    }
+    const savedId = editing ? editing.id : newSch.id;
+    this.editingScheduleId = null;
     this.storage.save();
 
     this.closeModal("modal-add-schedule");
-    this.showToast("새 일정이 등록되었습니다 📅");
-    this.selectedScheduleId = newSch.id;
+    this.showToast(editing ? "일정이 수정되었습니다." : "새 일정이 등록되었습니다 📅");
+    this.selectedScheduleId = savedId;
     this.selectedScheduleDate = date;
     this.renderSchedule();
   }
